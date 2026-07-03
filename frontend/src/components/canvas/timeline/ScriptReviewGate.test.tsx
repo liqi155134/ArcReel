@@ -247,6 +247,37 @@ describe("ScriptReviewGate", () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
+
+  it("renders local workflow overview with blocked script gate and locked video stage", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({
+        qa_gate_status: "blocked",
+        qa_summary: {
+          info_count: 0,
+          warn_count: 0,
+          block_count: 1,
+          gate_status: "blocked",
+          top_codes: ["missing_prop_reference"],
+        },
+        qa_findings: [
+          {
+            code: "missing_prop_reference",
+            severity: "block",
+            message: "E1S01 引用了未登记的 props 资产。",
+          },
+        ],
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("本地生产流程")).toBeInTheDocument());
+    expect(screen.getByText("脚本审核")).toBeInTheDocument();
+    expect(screen.getByLabelText("脚本审核：阻塞")).toBeInTheDocument();
+    expect(screen.getByText("视频生成")).toBeInTheDocument();
+    expect(screen.getByLabelText("视频生成：锁定")).toBeInTheDocument();
+  });
+
   it("renders QA findings and disables confirm for deterministic blocks", async () => {
     const confirm = vi.spyOn(API, "confirmScriptReview").mockResolvedValue(dramaState());
     vi.spyOn(API, "getScriptReview").mockResolvedValue(

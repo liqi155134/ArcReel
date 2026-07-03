@@ -21,6 +21,7 @@ import {
   GHOST_BTN_LG_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { UtteranceListEditor } from "./UtteranceListEditor";
+import { deriveLocalWorkflowStages, type LocalWorkflowStageStatus } from "./localWorkflow";
 
 interface ScriptReviewGateProps {
   projectName: string;
@@ -116,6 +117,62 @@ function DramaSceneCard({
         className="text-text-3"
       />
     </article>
+  );
+}
+
+
+const WORKFLOW_STAGE_IDS = [
+  "brief_gate",
+  "script_gate",
+  "asset_gate",
+  "storyboard_gate",
+  "video_gate",
+  "export_gate",
+] as const;
+
+const WORKFLOW_STATUS_CLASS: Record<LocalWorkflowStageStatus, string> = {
+  complete: "border-emerald-400/25 bg-emerald-950/15 text-emerald-200",
+  ready: "border-sky-400/25 bg-sky-950/15 text-sky-200",
+  warning: "border-amber-400/25 bg-amber-950/15 text-amber-200",
+  blocked: "border-rose-400/35 bg-rose-950/20 text-rose-200",
+  locked: "border-hairline bg-bg/35 text-text-4",
+};
+
+function LocalWorkflowOverview({ state }: { state: ScriptReviewState }) {
+  const { t } = useTranslation("dashboard");
+  const stages = deriveLocalWorkflowStages({ reviewStatus: state.status, qaGateStatus: state.qa_gate_status });
+  const labelById = Object.fromEntries(
+    WORKFLOW_STAGE_IDS.map((id) => [id, t(`local_workflow_stage_${id}`)]),
+  ) as Record<(typeof WORKFLOW_STAGE_IDS)[number], string>;
+
+  return (
+    <section className="rounded-[10px] border border-hairline px-3.5 py-3" style={CARD_STYLE} aria-label={t("local_workflow_title")}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-[12.5px] font-medium text-text">{t("local_workflow_title")}</h3>
+          <p className="mt-0.5 text-[11px] text-text-4">{t("local_workflow_hint")}</p>
+        </div>
+      </div>
+      <ol className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+        {stages.map((stage, index) => {
+          const label = labelById[stage.id];
+          const statusLabel = t(`local_workflow_status_${stage.status}`);
+          return (
+            <li
+              key={stage.id}
+              aria-label={`${label}：${statusLabel}`}
+              className={`rounded-[9px] border px-2.5 py-2 ${WORKFLOW_STATUS_CLASS[stage.status]}`}
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="font-mono text-[10px] text-text-5">{String(index + 1).padStart(2, "0")}</span>
+                <span className="rounded bg-bg/40 px-1.5 py-0.5 font-mono text-[9.5px] uppercase">{statusLabel}</span>
+              </div>
+              <div className="text-[12px] font-medium">{label}</div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 
@@ -422,6 +479,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           </button>
         </div>
       </header>
+
+      {state ? <LocalWorkflowOverview state={state} /> : null}
 
       {state ? <QaFindingsPanel state={state} /> : null}
 
