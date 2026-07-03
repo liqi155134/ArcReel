@@ -153,6 +153,8 @@ const WORKFLOW_CHECKLIST_ITEMS: Record<LocalWorkflowGate, readonly string[]> = {
   export: ["subtitles_audio", "aspect_cover", "file_naming", "final_playback"],
 };
 
+const WORKFLOW_REVIEW_GATES = ["storyboard", "video", "export"] as const;
+
 function LocalWorkflowOverview({
   state,
   busy,
@@ -178,8 +180,11 @@ function LocalWorkflowOverview({
     reviewStatus: state.status,
     qaGateStatus: state.qa_gate_status,
     storyboardReviewed: workflow.storyboard_reviewed,
+    storyboardDecision: workflow.storyboard_decision,
     videoReviewed: workflow.video_reviewed,
+    videoDecision: workflow.video_decision,
     exportReviewed: workflow.export_reviewed,
+    exportDecision: workflow.export_decision,
   });
   const canMarkStoryboardReviewed = state.status === "confirmed" && !workflow.storyboard_reviewed;
   const canMarkVideoReviewed = state.status === "confirmed" && workflow.storyboard_reviewed && !workflow.video_reviewed;
@@ -187,6 +192,49 @@ function LocalWorkflowOverview({
   const labelById = Object.fromEntries(
     WORKFLOW_STAGE_IDS.map((id) => [id, t(`local_workflow_stage_${id}`)]),
   ) as Record<(typeof WORKFLOW_STAGE_IDS)[number], string>;
+  const gateReviews: Record<
+    LocalWorkflowGate,
+    {
+      decision: LocalWorkflowDecision;
+      note: string;
+      checklist: LocalWorkflowChecklist;
+      label: string;
+    }
+  > = {
+    storyboard: {
+      decision: workflow.storyboard_decision,
+      note: workflow.storyboard_note,
+      checklist: workflow.storyboard_checklist,
+      label: t("local_workflow_stage_storyboard_gate"),
+    },
+    video: {
+      decision: workflow.video_decision,
+      note: workflow.video_note,
+      checklist: workflow.video_checklist,
+      label: t("local_workflow_stage_video_gate"),
+    },
+    export: {
+      decision: workflow.export_decision,
+      note: workflow.export_note,
+      checklist: workflow.export_checklist,
+      label: t("local_workflow_stage_export_gate"),
+    },
+  };
+  const reworkGate = WORKFLOW_REVIEW_GATES.find((gate) => gateReviews[gate].decision === "needs_changes");
+  const rework = reworkGate ? { gate: reworkGate, ...gateReviews[reworkGate] } : null;
+  const failedChecklistLabels = rework
+    ? WORKFLOW_CHECKLIST_ITEMS[rework.gate]
+        .filter((item) => rework.checklist[item] !== true)
+        .map((item) => t(`local_workflow_checklist_${item}`))
+    : [];
+  const markReworkFixed = () => {
+    if (!rework) return;
+    onSetWorkflowGate(rework.gate, false, {
+      decision: "pending",
+      note: "",
+      checklist: rework.checklist,
+    });
+  };
   const renderReviewControls = (
     gate: LocalWorkflowGate,
     canReview: boolean,
@@ -299,6 +347,30 @@ function LocalWorkflowOverview({
           );
         })}
       </ol>
+      {rework ? (
+        <div className="mt-2 rounded-[8px] border border-amber-400/30 bg-amber-950/15 px-2.5 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[12px] font-medium text-amber-100">
+                {t("local_workflow_current_blocker", { stage: rework.label })}
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-amber-100/80">
+                {rework.note || t("local_workflow_rework_no_note")}
+              </div>
+              {failedChecklistLabels.length > 0 ? (
+                <div className="mt-0.5 text-[11.5px] text-amber-100/80">
+                  {t("local_workflow_failed_checklist", { items: failedChecklistLabels.join("、") })}
+                </div>
+              ) : null}
+            </div>
+            <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={markReworkFixed}>
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("local_workflow_mark_fixed")}
+            </button>
+          </div>
+          <div className="mt-1 text-[11px] text-amber-100/70">{t("local_workflow_rework_hint")}</div>
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {renderReviewControls(
           "storyboard",

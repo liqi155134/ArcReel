@@ -1124,6 +1124,11 @@ export default {
   'local_workflow_checklist_aspect_cover': '比例/封面',
   'local_workflow_checklist_file_naming': '文件命名',
   'local_workflow_checklist_final_playback': '最终回放',
+  'local_workflow_current_blocker': '当前卡点：{{stage}}',
+  'local_workflow_rework_no_note': '未填写返工原因。',
+  'local_workflow_failed_checklist': '未通过：{{items}}',
+  'local_workflow_mark_fixed': '标记已修复，重新审核',
+  'local_workflow_rework_hint': '此操作只把该阶段退回待人工复审，不会自动通过。',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

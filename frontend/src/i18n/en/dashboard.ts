@@ -1123,6 +1123,11 @@ export default {
   'local_workflow_checklist_aspect_cover': 'Aspect/cover',
   'local_workflow_checklist_file_naming': 'File naming',
   'local_workflow_checklist_final_playback': 'Final playback',
+  'local_workflow_current_blocker': 'Current blocker: {{stage}}',
+  'local_workflow_rework_no_note': 'No rework reason was provided.',
+  'local_workflow_failed_checklist': 'Failed: {{items}}',
+  'local_workflow_mark_fixed': 'Mark fixed, review again',
+  'local_workflow_rework_hint': 'This only returns the stage to manual re-review; it does not auto-approve.',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

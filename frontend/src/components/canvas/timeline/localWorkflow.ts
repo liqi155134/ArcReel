@@ -1,4 +1,4 @@
-import type { QaGateStatus, ScriptReviewStatus } from "@/types";
+import type { LocalWorkflowDecision, QaGateStatus, ScriptReviewStatus } from "@/types";
 
 export type LocalWorkflowStageId =
   | "brief_gate"
@@ -19,8 +19,11 @@ export interface LocalWorkflowInput {
   reviewStatus: ScriptReviewStatus;
   qaGateStatus: QaGateStatus;
   storyboardReviewed?: boolean;
+  storyboardDecision?: LocalWorkflowDecision;
   videoReviewed?: boolean;
+  videoDecision?: LocalWorkflowDecision;
   exportReviewed?: boolean;
+  exportDecision?: LocalWorkflowDecision;
 }
 
 function scriptStatus(input: LocalWorkflowInput): LocalWorkflowStageStatus {
@@ -36,19 +39,32 @@ export function deriveLocalWorkflowStages(input: LocalWorkflowInput): LocalWorkf
   const scriptBlocksDownstream = script === "blocked";
   const scriptConfirmed = input.reviewStatus === "confirmed";
   const scriptAllowsManualStoryboard = !scriptBlocksDownstream && input.reviewStatus !== "no_step1";
+  const storyboardNeedsRework = input.storyboardDecision === "needs_changes";
+  const videoNeedsRework = input.videoDecision === "needs_changes";
+  const exportNeedsRework = input.exportDecision === "needs_changes";
   const storyboard: LocalWorkflowStageStatus = scriptBlocksDownstream
     ? "locked"
+    : storyboardNeedsRework
+      ? "warning"
     : scriptConfirmed && input.storyboardReviewed
       ? "complete"
       : scriptAllowsManualStoryboard
         ? "ready"
         : "locked";
-  const video: LocalWorkflowStageStatus = input.videoReviewed
-    ? "complete"
-    : storyboard === "complete"
-      ? "ready"
-      : "locked";
-  const exportStatus: LocalWorkflowStageStatus = input.exportReviewed ? "complete" : input.videoReviewed ? "ready" : "locked";
+  const video: LocalWorkflowStageStatus = storyboard !== "complete"
+    ? "locked"
+    : videoNeedsRework
+      ? "warning"
+      : input.videoReviewed
+        ? "complete"
+        : "ready";
+  const exportStatus: LocalWorkflowStageStatus = video !== "complete"
+    ? "locked"
+    : exportNeedsRework
+      ? "warning"
+      : input.exportReviewed
+        ? "complete"
+        : "ready";
 
   return [
     { id: "brief_gate", status: "complete" },

@@ -1089,6 +1089,11 @@ export default {
   'local_workflow_checklist_aspect_cover': 'Tỷ lệ/ảnh bìa',
   'local_workflow_checklist_file_naming': 'Tên tệp',
   'local_workflow_checklist_final_playback': 'Xem lại cuối',
+  'local_workflow_current_blocker': 'Điểm kẹt hiện tại: {{stage}}',
+  'local_workflow_rework_no_note': 'Chưa có lý do cần sửa.',
+  'local_workflow_failed_checklist': 'Chưa đạt: {{items}}',
+  'local_workflow_mark_fixed': 'Đánh dấu đã sửa, duyệt lại',
+  'local_workflow_rework_hint': 'Thao tác này chỉ đưa giai đoạn về duyệt thủ công lại, không tự động phê duyệt.',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

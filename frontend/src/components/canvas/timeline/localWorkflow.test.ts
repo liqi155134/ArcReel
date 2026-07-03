@@ -41,6 +41,33 @@ describe("deriveLocalWorkflowStages", () => {
     expect(stages.export_gate.status).toBe("locked");
   });
 
+  it("marks storyboard rework as warning and locks downstream video/export gates", () => {
+    const stages = stageMap({
+      reviewStatus: "confirmed",
+      qaGateStatus: "clear",
+      storyboardReviewed: false,
+      storyboardDecision: "needs_changes",
+    });
+
+    expect(stages.storyboard_gate.status).toBe("warning");
+    expect(stages.video_gate.status).toBe("locked");
+    expect(stages.export_gate.status).toBe("locked");
+  });
+
+  it("marks video rework as warning and locks export until video is approved again", () => {
+    const stages = stageMap({
+      reviewStatus: "confirmed",
+      qaGateStatus: "clear",
+      storyboardReviewed: true,
+      videoReviewed: false,
+      videoDecision: "needs_changes",
+    });
+
+    expect(stages.storyboard_gate.status).toBe("complete");
+    expect(stages.video_gate.status).toBe("warning");
+    expect(stages.export_gate.status).toBe("locked");
+  });
+
 
   it("marks export complete after explicit export review", () => {
     const stages = stageMap({

@@ -320,7 +320,7 @@ describe("ScriptReviewGate", () => {
         },
       }),
     );
-    await waitFor(() => expect(screen.getByText(/人物脸不一致，重出第 3 镜/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/人物脸不一致，重出第 3 镜/).length).toBeGreaterThan(0));
   });
 
   it("submits storyboard manual checklist values with the review decision", async () => {
@@ -366,7 +366,59 @@ describe("ScriptReviewGate", () => {
         },
       }),
     );
-    await waitFor(() => expect(screen.getByText(/镜头数量不够/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/镜头数量不够/).length).toBeGreaterThan(0));
+  });
+
+  it("shows the current rework blocker and lets the reviewer mark it fixed for re-review", async () => {
+    const blocked = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...clearWorkflowState().local_workflow_reviews,
+        storyboard_decision: "needs_changes",
+        storyboard_note: "镜头数量不够，补两个反应镜头。",
+        storyboard_checklist: {
+          character_consistency: true,
+          scene_prop_consistency: true,
+          shot_count: false,
+          prompt_quality: true,
+        },
+      },
+    });
+    const pendingAgain = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...blocked.local_workflow_reviews,
+        storyboard_decision: "pending",
+        storyboard_note: "",
+      },
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(blocked);
+    const setGate = vi.spyOn(API, "setScriptReviewWorkflowGate").mockResolvedValue(pendingAgain);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("当前卡点：分镜图审核")).toBeInTheDocument());
+    expect(screen.getByText("镜头数量不够，补两个反应镜头。")).toBeInTheDocument();
+    expect(screen.getByText("未通过：镜头数量")).toBeInTheDocument();
+    expect(screen.getByLabelText("视频生成：锁定")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("标记已修复，重新审核"));
+
+    await waitFor(() =>
+      expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", false, {
+        decision: "pending",
+        note: "",
+        checklist: {
+          character_consistency: true,
+          scene_prop_consistency: true,
+          shot_count: false,
+          prompt_quality: true,
+        },
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("当前卡点：分镜图审核")).not.toBeInTheDocument());
   });
 
   it("marks storyboard review manually after script confirmation", async () => {
