@@ -156,10 +156,12 @@ const WORKFLOW_CHECKLIST_ITEMS: Record<LocalWorkflowGate, readonly string[]> = {
 const WORKFLOW_REVIEW_GATES = ["storyboard", "video", "export"] as const;
 
 function LocalWorkflowOverview({
+  projectName,
   state,
   busy,
   onSetWorkflowGate,
 }: {
+  projectName: string;
   state: ScriptReviewState;
   busy: boolean;
   onSetWorkflowGate: (gate: LocalWorkflowGate, reviewed: boolean, review?: LocalWorkflowReviewUpdate) => void;
@@ -176,6 +178,8 @@ function LocalWorkflowOverview({
     video: workflow.video_checklist,
     export: workflow.export_checklist,
   });
+  const [promptImportOpen, setPromptImportOpen] = useState(false);
+  const [seedancePrompt, setSeedancePrompt] = useState("");
   const stages = deriveLocalWorkflowStages({
     reviewStatus: state.status,
     qaGateStatus: state.qa_gate_status,
@@ -227,6 +231,49 @@ function LocalWorkflowOverview({
         .filter((item) => rework.checklist[item] !== true)
         .map((item) => t(`local_workflow_checklist_${item}`))
     : [];
+  const buildReviewPackage = () => ({
+    schema: "arcreel.local_manual_review_package.v1",
+    exported_at: new Date().toISOString(),
+    project_name: projectName,
+    episode: state.episode,
+    content_mode: state.content_mode,
+    status: state.status,
+    seedance_prompt: seedancePrompt,
+    content: state.content,
+    local_workflow_reviews: workflow,
+    rework: rework
+      ? {
+          gate: rework.gate,
+          label: rework.label,
+          note: rework.note,
+          failed_checklist: failedChecklistLabels,
+        }
+      : null,
+  });
+  const exportReviewPackage = () => {
+    const blob = new Blob([JSON.stringify(buildReviewPackage(), null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${projectName}-episode-${state.episode}-manual-review-package.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+  const buildReworkBrief = () => {
+    if (!rework) return "";
+    return [
+      t("local_workflow_current_blocker", { stage: rework.label }),
+      rework.note || t("local_workflow_rework_no_note"),
+      failedChecklistLabels.length > 0
+        ? t("local_workflow_failed_checklist", { items: failedChecklistLabels.join("、") })
+        : t("local_workflow_failed_checklist_empty"),
+      `Seedance Prompt：${seedancePrompt || t("local_workflow_prompt_empty")}`,
+    ].join("\n");
+  };
+  const copyReworkBrief = async () => {
+    if (!rework || !navigator.clipboard?.writeText) return;
+    await navigator.clipboard.writeText(buildReworkBrief());
+  };
   const markReworkFixed = () => {
     if (!rework) return;
     onSetWorkflowGate(rework.gate, false, {
@@ -327,7 +374,27 @@ function LocalWorkflowOverview({
           <h3 className="text-[12.5px] font-medium text-text">{t("local_workflow_title")}</h3>
           <p className="mt-0.5 text-[11px] text-text-4">{t("local_workflow_hint")}</p>
         </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={() => setPromptImportOpen((open) => !open)}>
+            {t("local_workflow_import_prompt")}
+          </button>
+          <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={exportReviewPackage}>
+            {t("local_workflow_export_package")}
+          </button>
+        </div>
       </div>
+      {promptImportOpen ? (
+        <div className="mb-2 rounded-[8px] border border-hairline bg-bg/30 px-2.5 py-2">
+          <label className="mb-1 block text-[11px] font-medium text-text-3">{t("local_workflow_prompt_label")}</label>
+          <textarea
+            aria-label={t("local_workflow_prompt_label")}
+            value={seedancePrompt}
+            onChange={(event) => setSeedancePrompt(event.target.value)}
+            placeholder={t("local_workflow_prompt_placeholder")}
+            className="min-h-20 w-full rounded border border-hairline bg-bg/50 px-2 py-1 text-[12px] text-text-2 outline-none focus:border-accent"
+          />
+        </div>
+      ) : null}
       <ol className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
         {stages.map((stage, index) => {
           const label = labelById[stage.id];
@@ -363,10 +430,15 @@ function LocalWorkflowOverview({
                 </div>
               ) : null}
             </div>
-            <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={markReworkFixed}>
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("local_workflow_mark_fixed")}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={voidPromise(copyReworkBrief)}>
+                {t("local_workflow_copy_rework_brief")}
+              </button>
+              <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={markReworkFixed}>
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("local_workflow_mark_fixed")}
+              </button>
+            </div>
           </div>
           <div className="mt-1 text-[11px] text-amber-100/70">{t("local_workflow_rework_hint")}</div>
         </div>
@@ -735,7 +807,14 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
         </div>
       </header>
 
-      {state ? <LocalWorkflowOverview state={state} busy={busy} onSetWorkflowGate={voidPromise(handleSetWorkflowGate)} /> : null}
+      {state ? (
+        <LocalWorkflowOverview
+          projectName={projectName}
+          state={state}
+          busy={busy}
+          onSetWorkflowGate={voidPromise(handleSetWorkflowGate)}
+        />
+      ) : null}
 
       {state ? <QaFindingsPanel state={state} /> : null}
 

@@ -109,7 +109,10 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
 }
 
 describe("ScriptReviewGate", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("renders drama structured content with utterances and pending status", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
@@ -419,6 +422,81 @@ describe("ScriptReviewGate", () => {
       }),
     );
     await waitFor(() => expect(screen.queryByText("当前卡点：分镜图审核")).not.toBeInTheDocument());
+  });
+
+  it("exports a manual review package with script content, review state, and imported prompt", async () => {
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:manual-review-package");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({ status: "confirmed", confirmed_at: "2026-07-03T00:00:00Z" }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("导入 Prompt")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("导入 Prompt"));
+    fireEvent.change(screen.getByLabelText("Seedance Prompt"), {
+      target: { value: "E1S01: 阿离雨夜屋檐下近景，电影感。" },
+    });
+    fireEvent.click(screen.getByText("导出审核包"));
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const exported = JSON.parse(await blob.text()) as {
+      schema: string;
+      project_name: string;
+      episode: number;
+      seedance_prompt: string;
+      content: { scenes: Array<{ scene_id: string }> };
+      local_workflow_reviews: ScriptReviewState["local_workflow_reviews"];
+    };
+    expect(exported.schema).toBe("arcreel.local_manual_review_package.v1");
+    expect(exported.project_name).toBe("p");
+    expect(exported.episode).toBe(1);
+    expect(exported.seedance_prompt).toBe("E1S01: 阿离雨夜屋檐下近景，电影感。");
+    expect(exported.content.scenes[0].scene_id).toBe("E1S01");
+    expect(exported.local_workflow_reviews.storyboard_decision).toBe("pending");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:manual-review-package");
+  });
+
+  it("copies a rework brief with blocker, failed checklist, and imported prompt", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({
+        status: "confirmed",
+        confirmed_at: "2026-07-03T00:00:00Z",
+        local_workflow_reviews: {
+          ...clearWorkflowState().local_workflow_reviews,
+          storyboard_decision: "needs_changes",
+          storyboard_note: "镜头数量不够，补两个反应镜头。",
+          storyboard_checklist: {
+            character_consistency: true,
+            scene_prop_consistency: true,
+            shot_count: false,
+            prompt_quality: true,
+          },
+        },
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("复制返工说明")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("导入 Prompt"));
+    fireEvent.change(screen.getByLabelText("Seedance Prompt"), {
+      target: { value: "E1S01: 需要补反应镜头。" },
+    });
+    fireEvent.click(screen.getByText("复制返工说明"));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copied = writeText.mock.calls[0][0] as string;
+    expect(copied).toContain("当前卡点：分镜图审核");
+    expect(copied).toContain("镜头数量不够，补两个反应镜头。");
+    expect(copied).toContain("未通过：镜头数量");
+    expect(copied).toContain("Seedance Prompt：E1S01: 需要补反应镜头。");
   });
 
   it("marks storyboard review manually after script confirmation", async () => {
