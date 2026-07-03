@@ -4,7 +4,7 @@ import { API } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { ProjectData } from "@/types";
+import type { ProjectData, ScriptReviewState } from "@/types";
 
 vi.mock("./WelcomeCanvas", () => ({
   WelcomeCanvas: () => <div data-testid="welcome-canvas">welcome</div>,
@@ -30,6 +30,44 @@ function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
     characters: {},
     scenes: {},
     props: {},
+    ...overrides,
+  };
+}
+
+function productionReviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
+  return {
+    episode: 1,
+    content_mode: "drama",
+    status: "confirmed",
+    fingerprint: "fp",
+    confirmed_at: "2026-07-03T00:00:00Z",
+    content: null,
+    qa_findings: [],
+    qa_summary: { info_count: 0, warn_count: 0, block_count: 0, gate_status: "clear", top_codes: [] },
+    qa_gate_status: "clear",
+    local_workflow_reviews: {
+      storyboard_reviewed: false,
+      storyboard_reviewed_at: null,
+      storyboard_decision: "pending",
+      storyboard_note: "",
+      storyboard_checklist: {},
+      video_reviewed: false,
+      video_reviewed_at: null,
+      video_decision: "pending",
+      video_note: "",
+      video_checklist: {},
+      export_reviewed: false,
+      export_reviewed_at: null,
+      export_decision: "pending",
+      export_note: "",
+      export_checklist: {},
+    },
+    local_workflow_artifacts: {
+      seedance_prompt: "E1S01 prompt",
+      storyboard: { path: "storyboards/e1.png", url: "", note: "", updated_at: null },
+      video: { path: "videos/e1.mp4", url: "", note: "", updated_at: null },
+      export: { path: "exports/e1.mp4", url: "", note: "", updated_at: null },
+    },
     ...overrides,
   };
 }
@@ -115,6 +153,84 @@ describe("OverviewCanvas", () => {
     );
     expect(screen.getByRole("button", { name: "创建概述" })).toBeInTheDocument();
   });
+
+  it("renders a project-level production board with blockers, rework, and missing prompt issues", async () => {
+    vi.spyOn(API, "getScriptReview").mockImplementation(async (_project, episode) =>
+      episode === 1
+        ? productionReviewState({
+            episode: 1,
+            status: "pending_review",
+            qa_gate_status: "blocked",
+            qa_summary: {
+              info_count: 0,
+              warn_count: 0,
+              block_count: 1,
+              gate_status: "blocked",
+              top_codes: ["missing_prop_reference"],
+            },
+          })
+        : productionReviewState({
+            episode: 2,
+            local_workflow_reviews: {
+              ...productionReviewState().local_workflow_reviews,
+              storyboard_decision: "needs_changes",
+              storyboard_note: "补两个反应镜头。",
+            },
+            local_workflow_artifacts: {
+              ...productionReviewState().local_workflow_artifacts,
+              seedance_prompt: "",
+            },
+          }),
+    );
+
+    render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({
+          content_mode: "drama",
+          episodes: [
+            { episode: 1, title: "雨夜真相", script_file: "scripts/episode_1.json" },
+            { episode: 2, title: "屋檐返工", script_file: "scripts/episode_2.json" },
+          ],
+        })}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("短剧生产看板")).toBeInTheDocument());
+    expect(screen.getByText("QA 阻塞")).toBeInTheDocument();
+    expect(screen.getByText("返工卡点")).toBeInTheDocument();
+    expect(screen.getAllByText("缺 Prompt").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("雨夜真相").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("屋檐返工").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("QA阻塞").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("分镜返工").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "打开 E1" })).toBeInTheDocument();
+  });
+
+  it("exports the production board as a CSV checklist", async () => {
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:production-board");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(productionReviewState());
+
+    render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({
+          content_mode: "drama",
+          episodes: [{ episode: 1, title: "雨夜真相", script_file: "scripts/episode_1.json" }],
+        })}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("导出生产清单"));
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    await expect(blob.text()).resolves.toContain("episode,title,script,storyboard,video,export,issues");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:production-board");
+  });
 });
 
 describe("OverviewCanvas ad mode", () => {
@@ -145,7 +261,7 @@ describe("OverviewCanvas ad mode", () => {
 
   it("keeps episode semantics for narration projects", () => {
     render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
-    expect(screen.getByText("E1")).toBeInTheDocument();
+    expect(screen.getAllByText("E1").length).toBeGreaterThan(0);
   });
 
   it("shows ad init canvas when ad project has no products and no brief", () => {

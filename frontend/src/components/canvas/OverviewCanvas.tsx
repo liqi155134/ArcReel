@@ -13,6 +13,7 @@ import { errMsg } from "@/utils/async";
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
 import { ConflictModal, type ConflictResolution } from "./ConflictModal";
+import { EpisodeProductionBoard } from "./EpisodeProductionBoard";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 
 interface OverviewCanvasProps {
@@ -590,6 +591,10 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               >
                 {t("cost_estimate_failed", { message: costError })}
               </div>
+            )}
+
+            {!isAd && (projectData.episodes?.length ?? 0) > 0 && (
+              <EpisodeProductionBoard projectName={projectName} episodes={projectData.episodes ?? []} />
             )}
 
             {/* Project total cost */}
