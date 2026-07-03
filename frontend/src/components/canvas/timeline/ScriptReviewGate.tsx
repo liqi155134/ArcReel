@@ -10,6 +10,8 @@ import type {
   ScriptReviewState,
   Utterance,
   LocalWorkflowGate,
+  LocalWorkflowDecision,
+  LocalWorkflowReviewUpdate,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { voidPromise } from "@/utils/async";
@@ -139,6 +141,11 @@ const WORKFLOW_STATUS_CLASS: Record<LocalWorkflowStageStatus, string> = {
   locked: "border-hairline bg-bg/35 text-text-4",
 };
 
+const WORKFLOW_REVIEW_BADGE_COMPLETE_CLS =
+  "rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200";
+const WORKFLOW_REVIEW_BADGE_WARNING_CLS =
+  "rounded border border-amber-400/30 bg-amber-950/15 px-2 py-1 text-[11.5px] text-amber-200";
+
 function LocalWorkflowOverview({
   state,
   busy,
@@ -146,10 +153,15 @@ function LocalWorkflowOverview({
 }: {
   state: ScriptReviewState;
   busy: boolean;
-  onSetWorkflowGate: (gate: LocalWorkflowGate, reviewed: boolean) => void;
+  onSetWorkflowGate: (gate: LocalWorkflowGate, reviewed: boolean, review?: LocalWorkflowReviewUpdate) => void;
 }) {
   const { t } = useTranslation("dashboard");
   const workflow = state.local_workflow_reviews;
+  const [reviewNotes, setReviewNotes] = useState<Record<LocalWorkflowGate, string>>({
+    storyboard: workflow.storyboard_note,
+    video: workflow.video_note,
+    export: workflow.export_note,
+  });
   const stages = deriveLocalWorkflowStages({
     reviewStatus: state.status,
     qaGateStatus: state.qa_gate_status,
@@ -163,6 +175,65 @@ function LocalWorkflowOverview({
   const labelById = Object.fromEntries(
     WORKFLOW_STAGE_IDS.map((id) => [id, t(`local_workflow_stage_${id}`)]),
   ) as Record<(typeof WORKFLOW_STAGE_IDS)[number], string>;
+  const renderReviewControls = (
+    gate: LocalWorkflowGate,
+    canReview: boolean,
+    noteLabelKey: string,
+    approveLabelKey: string,
+  ) =>
+    canReview ? (
+      <div className="flex w-full flex-wrap items-center gap-2">
+        <input
+          aria-label={t(noteLabelKey)}
+          value={reviewNotes[gate]}
+          onChange={(event) => setReviewNotes((prev) => ({ ...prev, [gate]: event.target.value }))}
+          placeholder={t("local_workflow_review_note_placeholder")}
+          className="min-w-64 flex-1 rounded border border-hairline bg-bg/50 px-2 py-1 text-[12px] text-text-2 outline-none focus:border-accent"
+        />
+        <button
+          type="button"
+          className={GHOST_BTN_CLS}
+          disabled={busy}
+          onClick={() =>
+            onSetWorkflowGate(gate, false, {
+              decision: "needs_changes",
+              note: reviewNotes[gate],
+            })
+          }
+        >
+          <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+          {t("local_workflow_needs_changes")}
+        </button>
+        <button
+          type="button"
+          className={GHOST_BTN_CLS}
+          disabled={busy}
+          onClick={() =>
+            onSetWorkflowGate(gate, true, {
+              decision: "approved",
+              note: reviewNotes[gate],
+            })
+          }
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+          {t(approveLabelKey)}
+        </button>
+      </div>
+    ) : null;
+  const renderReviewBadge = (
+    reviewed: boolean,
+    decision: LocalWorkflowDecision,
+    note: string,
+    reviewedLabelKey: string,
+  ) => {
+    if (!reviewed && decision !== "needs_changes" && !note) return null;
+    return (
+      <span className={reviewed ? WORKFLOW_REVIEW_BADGE_COMPLETE_CLS : WORKFLOW_REVIEW_BADGE_WARNING_CLS}>
+        {reviewed ? t(reviewedLabelKey) : t("local_workflow_needs_changes")}
+        {note ? ` · ${note}` : ""}
+      </span>
+    );
+  };
 
   return (
     <section className="rounded-[10px] border border-hairline px-3.5 py-3" style={CARD_STYLE} aria-label={t("local_workflow_title")}>
@@ -192,44 +263,42 @@ function LocalWorkflowOverview({
         })}
       </ol>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        {canMarkStoryboardReviewed ? (
-          <button
-            type="button"
-            className={GHOST_BTN_CLS}
-            disabled={busy}
-            onClick={() => onSetWorkflowGate("storyboard", true)}
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("local_workflow_mark_storyboard_reviewed")}
-          </button>
-        ) : null}
-        {workflow.storyboard_reviewed ? (
-          <span className="rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200">
-            {t("local_workflow_storyboard_reviewed")}
-          </span>
-        ) : null}
-        {canMarkVideoReviewed ? (
-          <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={() => onSetWorkflowGate("video", true)}>
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("local_workflow_mark_video_reviewed")}
-          </button>
-        ) : null}
-        {workflow.video_reviewed ? (
-          <span className="rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200">
-            {t("local_workflow_video_reviewed")}
-          </span>
-        ) : null}
-        {canMarkExportReviewed ? (
-          <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={() => onSetWorkflowGate("export", true)}>
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("local_workflow_mark_export_reviewed")}
-          </button>
-        ) : null}
-        {workflow.export_reviewed ? (
-          <span className="rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200">
-            {t("local_workflow_export_reviewed")}
-          </span>
-        ) : null}
+        {renderReviewControls(
+          "storyboard",
+          canMarkStoryboardReviewed,
+          "local_workflow_storyboard_note_label",
+          "local_workflow_mark_storyboard_reviewed",
+        )}
+        {renderReviewBadge(
+          workflow.storyboard_reviewed,
+          workflow.storyboard_decision,
+          workflow.storyboard_note,
+          "local_workflow_storyboard_reviewed",
+        )}
+        {renderReviewControls(
+          "video",
+          canMarkVideoReviewed,
+          "local_workflow_video_note_label",
+          "local_workflow_mark_video_reviewed",
+        )}
+        {renderReviewBadge(
+          workflow.video_reviewed,
+          workflow.video_decision,
+          workflow.video_note,
+          "local_workflow_video_reviewed",
+        )}
+        {renderReviewControls(
+          "export",
+          canMarkExportReviewed,
+          "local_workflow_export_note_label",
+          "local_workflow_mark_export_reviewed",
+        )}
+        {renderReviewBadge(
+          workflow.export_reviewed,
+          workflow.export_decision,
+          workflow.export_note,
+          "local_workflow_export_reviewed",
+        )}
       </div>
     </section>
   );
@@ -448,10 +517,10 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
 
 
   const handleSetWorkflowGate = useCallback(
-    async (gate: LocalWorkflowGate, reviewed: boolean) => {
+    async (gate: LocalWorkflowGate, reviewed: boolean, review?: LocalWorkflowReviewUpdate) => {
       setWorkflowSaving(true);
       try {
-        adopt(await API.setScriptReviewWorkflowGate(projectName, episode, gate, reviewed));
+        adopt(await API.setScriptReviewWorkflowGate(projectName, episode, gate, reviewed, review));
         pushToast(t("dashboard:local_workflow_review_saved"), "success");
       } catch (err) {
         pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");

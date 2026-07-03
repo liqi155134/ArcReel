@@ -1106,6 +1106,11 @@ export default {
   'local_workflow_video_reviewed': '视频已审核',
   'local_workflow_mark_export_reviewed': '标记导出已审核',
   'local_workflow_export_reviewed': '导出已审核',
+  'local_workflow_storyboard_note_label': '分镜图人工审核备注',
+  'local_workflow_video_note_label': '视频人工审核备注',
+  'local_workflow_export_note_label': '导出人工审核备注',
+  'local_workflow_review_note_placeholder': '填写人工审核备注（可选）',
+  'local_workflow_needs_changes': '需要修改',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

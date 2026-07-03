@@ -51,6 +51,7 @@ import type {
   DramaNormalizedScript,
   NarrationStep1Draft,
   LocalWorkflowGate,
+  LocalWorkflowReviewUpdate,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -803,13 +804,14 @@ class API {
     projectName: string,
     episode: number,
     gate: LocalWorkflowGate,
-    reviewed: boolean
+    reviewed: boolean,
+    review?: LocalWorkflowReviewUpdate
   ): Promise<ScriptReviewState> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/workflow-gates/${gate}`,
       {
         method: "PUT",
-        body: JSON.stringify({ reviewed }),
+        body: JSON.stringify({ reviewed, ...(review ?? {}) }),
       }
     );
   }

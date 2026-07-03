@@ -18,10 +18,16 @@ function clearWorkflowState(): Pick<ScriptReviewState, "local_workflow_reviews">
     local_workflow_reviews: {
       storyboard_reviewed: false,
       storyboard_reviewed_at: null,
+      storyboard_decision: "pending",
+      storyboard_note: "",
       video_reviewed: false,
       video_reviewed_at: null,
+      video_decision: "pending",
+      video_note: "",
       export_reviewed: false,
       export_reviewed_at: null,
+      export_decision: "pending",
+      export_note: "",
     },
   };
 }
@@ -262,7 +268,36 @@ describe("ScriptReviewGate", () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
+  it("records storyboard human review decision and note", async () => {
+    const confirmed = dramaState({ status: "confirmed", confirmed_at: "2026-07-03T00:00:00Z" });
+    const needsChanges = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...clearWorkflowState().local_workflow_reviews,
+        storyboard_decision: "needs_changes",
+        storyboard_note: "人物脸不一致，重出第 3 镜",
+      },
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmed);
+    const setGate = vi.spyOn(API, "setScriptReviewWorkflowGate").mockResolvedValue(needsChanges);
 
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("标记分镜图已审核")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("分镜图人工审核备注"), {
+      target: { value: "人物脸不一致，重出第 3 镜" },
+    });
+    fireEvent.click(screen.getByText("需要修改"));
+
+    await waitFor(() =>
+      expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", false, {
+        decision: "needs_changes",
+        note: "人物脸不一致，重出第 3 镜",
+      }),
+    );
+    await waitFor(() => expect(screen.getByText(/人物脸不一致，重出第 3 镜/)).toBeInTheDocument());
+  });
 
   it("marks storyboard review manually after script confirmation", async () => {
     const confirmed = dramaState({ status: "confirmed", confirmed_at: "2026-07-03T00:00:00Z" });
@@ -283,7 +318,12 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByText("标记分镜图已审核")).toBeInTheDocument());
     fireEvent.click(screen.getByText("标记分镜图已审核"));
 
-    await waitFor(() => expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", true));
+    await waitFor(() =>
+      expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", true, {
+        decision: "approved",
+        note: "",
+      }),
+    );
     await waitFor(() => expect(screen.getByText("分镜图已审核")).toBeInTheDocument());
     expect(screen.getByLabelText("视频生成：就绪")).toBeInTheDocument();
   });
@@ -350,13 +390,23 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByText("标记视频已审核")).toBeInTheDocument());
     fireEvent.click(screen.getByText("标记视频已审核"));
 
-    await waitFor(() => expect(setGate).toHaveBeenCalledWith("p", 1, "video", true));
+    await waitFor(() =>
+      expect(setGate).toHaveBeenCalledWith("p", 1, "video", true, {
+        decision: "approved",
+        note: "",
+      }),
+    );
     await waitFor(() => expect(screen.getByText("视频已审核")).toBeInTheDocument());
     expect(screen.getByLabelText("导出检查：就绪")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("标记导出已审核"));
 
-    await waitFor(() => expect(setGate).toHaveBeenCalledWith("p", 1, "export", true));
+    await waitFor(() =>
+      expect(setGate).toHaveBeenCalledWith("p", 1, "export", true, {
+        decision: "approved",
+        note: "",
+      }),
+    );
     await waitFor(() => expect(screen.getByText("导出已审核")).toBeInTheDocument());
     expect(screen.getByLabelText("导出检查：完成")).toBeInTheDocument();
   });

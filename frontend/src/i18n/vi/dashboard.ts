@@ -1071,6 +1071,11 @@ export default {
   'local_workflow_video_reviewed': 'Video đã duyệt',
   'local_workflow_mark_export_reviewed': 'Đánh dấu xuất bản đã duyệt',
   'local_workflow_export_reviewed': 'Xuất bản đã duyệt',
+  'local_workflow_storyboard_note_label': 'Ghi chú duyệt storyboard thủ công',
+  'local_workflow_video_note_label': 'Ghi chú duyệt video thủ công',
+  'local_workflow_export_note_label': 'Ghi chú duyệt xuất bản thủ công',
+  'local_workflow_review_note_placeholder': 'Thêm ghi chú duyệt thủ công (tùy chọn)',
+  'local_workflow_needs_changes': 'Cần sửa',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

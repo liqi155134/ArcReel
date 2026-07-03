@@ -467,7 +467,7 @@ describe("API", () => {
       await API.getScriptReview("a b", 1);
       await API.saveScriptReviewContent("a b", 2, content);
       await API.confirmScriptReview("a b", 3);
-      await API.setScriptReviewWorkflowGate("a b", 4, "storyboard", true);
+      await API.setScriptReviewWorkflowGate("a b", 4, "storyboard", true, { decision: "approved", note: "人工看过" });
 
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review");
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/2/script-review/content", {
@@ -479,7 +479,7 @@ describe("API", () => {
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/4/script-review/workflow-gates/storyboard", {
         method: "PUT",
-        body: JSON.stringify({ reviewed: true }),
+        body: JSON.stringify({ reviewed: true, decision: "approved", note: "人工看过" }),
       });
     });
   });

@@ -1105,6 +1105,11 @@ export default {
   'local_workflow_video_reviewed': 'Video reviewed',
   'local_workflow_mark_export_reviewed': 'Mark export reviewed',
   'local_workflow_export_reviewed': 'Export reviewed',
+  'local_workflow_storyboard_note_label': 'Storyboard human review note',
+  'local_workflow_video_note_label': 'Video human review note',
+  'local_workflow_export_note_label': 'Export human review note',
+  'local_workflow_review_note_placeholder': 'Add human review note (optional)',
+  'local_workflow_needs_changes': 'Needs changes',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

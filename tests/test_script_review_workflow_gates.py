@@ -73,10 +73,16 @@ def test_get_state_defaults_local_workflow_reviews_to_false(tmp_path: Path) -> N
     assert state["local_workflow_reviews"] == {
         "storyboard_reviewed": False,
         "storyboard_reviewed_at": None,
+        "storyboard_decision": "pending",
+        "storyboard_note": "",
         "video_reviewed": False,
         "video_reviewed_at": None,
+        "video_decision": "pending",
+        "video_note": "",
         "export_reviewed": False,
         "export_reviewed_at": None,
+        "export_decision": "pending",
+        "export_note": "",
     }
 
 
@@ -99,16 +105,43 @@ def test_set_workflow_review_persists_and_can_unset_storyboard_gate(tmp_path: Pa
     assert episode_meta["local_workflow_reviews"]["storyboard"]["reviewed"] is False
 
 
+def test_set_workflow_review_persists_human_decision_and_note(tmp_path: Path) -> None:
+    pm = _make_project(tmp_path)
+    svc = ScriptReviewService(pm)
+
+    state = svc.set_workflow_review(
+        "demo",
+        1,
+        "storyboard",
+        False,
+        decision="needs_changes",
+        note="第 3 镜角色脸不一致，先重出分镜图。",
+    )
+
+    reviews = state["local_workflow_reviews"]
+    assert reviews["storyboard_reviewed"] is False
+    assert reviews["storyboard_decision"] == "needs_changes"
+    assert reviews["storyboard_note"] == "第 3 镜角色脸不一致，先重出分镜图。"
+
+    episode_meta = pm.load_project("demo")["episodes"][0]
+    record = episode_meta["local_workflow_reviews"]["storyboard"]
+    assert record["reviewed"] is False
+    assert record["decision"] == "needs_changes"
+    assert record["note"] == "第 3 镜角色脸不一致，先重出分镜图。"
+
+
 def test_router_updates_local_workflow_gate(tmp_path: Path, monkeypatch) -> None:
     client, pm = _client(monkeypatch, tmp_path)
     with client:
         base = "/api/v1/projects/demo/episodes/1/script-review/workflow-gates/storyboard"
-        resp = client.put(base, json={"reviewed": True})
+        resp = client.put(base, json={"reviewed": False, "decision": "needs_changes", "note": "先换首帧"})
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["local_workflow_reviews"]["storyboard_reviewed"] is True
-        assert pm.load_project("demo")["episodes"][0]["local_workflow_reviews"]["storyboard"]["reviewed"] is True
+        assert body["local_workflow_reviews"]["storyboard_reviewed"] is False
+        assert body["local_workflow_reviews"]["storyboard_decision"] == "needs_changes"
+        assert body["local_workflow_reviews"]["storyboard_note"] == "先换首帧"
+        assert pm.load_project("demo")["episodes"][0]["local_workflow_reviews"]["storyboard"]["reviewed"] is False
 
 
 def test_router_rejects_unknown_local_workflow_gate(tmp_path: Path, monkeypatch) -> None:

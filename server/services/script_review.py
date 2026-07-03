@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -23,7 +23,9 @@ from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
 from lib.short_drama_qa import empty_result, evaluate_short_drama_qa, has_blocking_findings
 
 WorkflowGate = Literal["storyboard", "video", "export"]
+WorkflowDecision = Literal["pending", "approved", "needs_changes", "skipped"]
 _WORKFLOW_GATES: tuple[WorkflowGate, ...] = ("storyboard", "video", "export")
+_WORKFLOW_DECISIONS: tuple[WorkflowDecision, ...] = ("pending", "approved", "needs_changes", "skipped")
 _WORKFLOW_REVIEW_FIELD = "local_workflow_reviews"
 
 #: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
@@ -87,7 +89,15 @@ class ScriptReviewService:
             **qa,
         }
 
-    def set_workflow_review(self, project_name: str, episode: int, gate: str, reviewed: bool) -> dict[str, Any]:
+    def set_workflow_review(
+        self,
+        project_name: str,
+        episode: int,
+        gate: str,
+        reviewed: bool,
+        decision: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
         """Persist one manual local-production review gate and return the latest script-review state.
 
         Gate state is stored under ``episodes[i].local_workflow_reviews`` so it stays local to the episode and
@@ -95,6 +105,8 @@ class ScriptReviewService:
         """
         if gate not in _WORKFLOW_GATES:
             raise ScriptReviewError("invalid_workflow_gate", f"unsupported workflow gate: {gate}")
+        normalized_decision = _normalize_workflow_decision(reviewed, decision)
+        normalized_note = _normalize_workflow_note(note)
         reviewed_at = datetime.now(UTC).isoformat() if reviewed else None
 
         def _mutate(project: dict[str, Any]) -> None:
@@ -105,7 +117,12 @@ class ScriptReviewService:
             if not isinstance(records, dict):
                 records = {}
                 episode_meta[_WORKFLOW_REVIEW_FIELD] = records
-            records[gate] = {"reviewed": reviewed, "reviewed_at": reviewed_at}
+            records[gate] = {
+                "reviewed": reviewed,
+                "reviewed_at": reviewed_at,
+                "decision": normalized_decision,
+                "note": normalized_note,
+            }
 
         self.pm.update_project(project_name, _mutate)
         return self.get_state(project_name, episode)
@@ -182,7 +199,6 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-
 def _workflow_review_summary(project: dict[str, Any], episode: int) -> dict[str, Any]:
     episode_meta = script_review.find_episode(project, episode) or {}
     records = episode_meta.get(_WORKFLOW_REVIEW_FIELD)
@@ -195,6 +211,26 @@ def _workflow_review_summary(project: dict[str, Any], episode: int) -> dict[str,
             record = {}
         reviewed = record.get("reviewed") is True
         reviewed_at = record.get("reviewed_at") if isinstance(record.get("reviewed_at"), str) else None
+        decision = record.get("decision") if record.get("decision") in _WORKFLOW_DECISIONS else None
+        note = record.get("note") if isinstance(record.get("note"), str) else ""
         summary[f"{gate}_reviewed"] = reviewed
         summary[f"{gate}_reviewed_at"] = reviewed_at if reviewed else None
+        summary[f"{gate}_decision"] = decision or ("approved" if reviewed else "pending")
+        summary[f"{gate}_note"] = note
     return summary
+
+
+def _normalize_workflow_decision(reviewed: bool, decision: str | None) -> WorkflowDecision:
+    if decision is None:
+        return "approved" if reviewed else "pending"
+    if decision not in _WORKFLOW_DECISIONS:
+        raise ScriptReviewError("invalid_workflow_decision", f"unsupported workflow decision: {decision}")
+    if reviewed and decision == "pending":
+        return "approved"
+    return cast(WorkflowDecision, decision)
+
+
+def _normalize_workflow_note(note: str | None) -> str:
+    if note is None:
+        return ""
+    return note.strip()[:1000]

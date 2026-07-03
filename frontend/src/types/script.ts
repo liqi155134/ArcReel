@@ -133,14 +133,26 @@ export interface NarrationStep1Draft {
 export type QaSeverity = "info" | "warn" | "block";
 export type QaGateStatus = "clear" | "warning" | "blocked";
 export type LocalWorkflowGate = "storyboard" | "video" | "export";
+export type LocalWorkflowDecision = "pending" | "approved" | "needs_changes" | "skipped";
+
+export interface LocalWorkflowReviewUpdate {
+  decision?: LocalWorkflowDecision;
+  note?: string;
+}
 
 export interface ScriptReviewLocalWorkflowReviews {
   storyboard_reviewed: boolean;
   storyboard_reviewed_at: string | null;
+  storyboard_decision: LocalWorkflowDecision;
+  storyboard_note: string;
   video_reviewed: boolean;
   video_reviewed_at: string | null;
+  video_decision: LocalWorkflowDecision;
+  video_note: string;
   export_reviewed: boolean;
   export_reviewed_at: string | null;
+  export_decision: LocalWorkflowDecision;
+  export_note: string;
 }
 
 export interface ScriptReviewQaFinding {
