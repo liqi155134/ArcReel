@@ -1098,6 +1098,9 @@ export default {
   'local_workflow_status_warning': 'Warning',
   'local_workflow_status_blocked': 'Blocked',
   'local_workflow_status_locked': 'Locked',
+  'local_workflow_mark_storyboard_reviewed': 'Mark storyboard reviewed',
+  'local_workflow_storyboard_reviewed': 'Storyboard reviewed',
+  'local_workflow_review_saved': 'Local workflow review saved',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

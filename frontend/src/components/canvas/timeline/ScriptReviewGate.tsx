@@ -9,6 +9,7 @@ import type {
   NarrationStep1Segment,
   ScriptReviewState,
   Utterance,
+  LocalWorkflowGate,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { voidPromise } from "@/utils/async";
@@ -138,9 +139,25 @@ const WORKFLOW_STATUS_CLASS: Record<LocalWorkflowStageStatus, string> = {
   locked: "border-hairline bg-bg/35 text-text-4",
 };
 
-function LocalWorkflowOverview({ state }: { state: ScriptReviewState }) {
+function LocalWorkflowOverview({
+  state,
+  busy,
+  onSetWorkflowGate,
+}: {
+  state: ScriptReviewState;
+  busy: boolean;
+  onSetWorkflowGate: (gate: LocalWorkflowGate, reviewed: boolean) => void;
+}) {
   const { t } = useTranslation("dashboard");
-  const stages = deriveLocalWorkflowStages({ reviewStatus: state.status, qaGateStatus: state.qa_gate_status });
+  const workflow = state.local_workflow_reviews;
+  const stages = deriveLocalWorkflowStages({
+    reviewStatus: state.status,
+    qaGateStatus: state.qa_gate_status,
+    storyboardReviewed: workflow.storyboard_reviewed,
+    videoReviewed: workflow.video_reviewed,
+    exportReviewed: workflow.export_reviewed,
+  });
+  const canMarkStoryboardReviewed = state.status === "confirmed" && !workflow.storyboard_reviewed;
   const labelById = Object.fromEntries(
     WORKFLOW_STAGE_IDS.map((id) => [id, t(`local_workflow_stage_${id}`)]),
   ) as Record<(typeof WORKFLOW_STAGE_IDS)[number], string>;
@@ -172,6 +189,24 @@ function LocalWorkflowOverview({ state }: { state: ScriptReviewState }) {
           );
         })}
       </ol>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {canMarkStoryboardReviewed ? (
+          <button
+            type="button"
+            className={GHOST_BTN_CLS}
+            disabled={busy}
+            onClick={() => onSetWorkflowGate("storyboard", true)}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("local_workflow_mark_storyboard_reviewed")}
+          </button>
+        ) : null}
+        {workflow.storyboard_reviewed ? (
+          <span className="rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200">
+            {t("local_workflow_storyboard_reviewed")}
+          </span>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -293,10 +328,11 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const [reloadNonce, setReloadNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [workflowSaving, setWorkflowSaving] = useState(false);
 
   const serverContent = state?.content ?? null;
   const dirty = useMemo(() => isDirty(draft, serverContent), [draft, serverContent]);
-  const busy = saving || confirming;
+  const busy = saving || confirming || workflowSaving;
 
   // 把 dirty 镜像进 ref，供下方拉取 effect 读取最新值，而无需把 dirty 列入 deps（否则每次编辑都会重新拉取）。
   const dirtyRef = useRef(false);
@@ -384,6 +420,23 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
       setConfirming(false);
     }
   }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
+
+
+
+  const handleSetWorkflowGate = useCallback(
+    async (gate: LocalWorkflowGate, reviewed: boolean) => {
+      setWorkflowSaving(true);
+      try {
+        adopt(await API.setScriptReviewWorkflowGate(projectName, episode, gate, reviewed));
+        pushToast(t("dashboard:local_workflow_review_saved"), "success");
+      } catch (err) {
+        pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
+      } finally {
+        setWorkflowSaving(false);
+      }
+    },
+    [projectName, episode, adopt, pushToast, t],
+  );
 
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {
@@ -480,7 +533,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
         </div>
       </header>
 
-      {state ? <LocalWorkflowOverview state={state} /> : null}
+      {state ? <LocalWorkflowOverview state={state} busy={busy} onSetWorkflowGate={voidPromise(handleSetWorkflowGate)} /> : null}
 
       {state ? <QaFindingsPanel state={state} /> : null}
 

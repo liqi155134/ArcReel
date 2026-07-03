@@ -9,6 +9,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Body, HTTPException
+from pydantic import BaseModel
 
 from lib.app_data_dir import app_data_dir
 from lib.i18n import Translator
@@ -19,6 +20,10 @@ from server.services.script_review import ScriptReviewError, ScriptReviewService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class WorkflowGateReviewRequest(BaseModel):
+    reviewed: bool
 
 pm = ProjectManager(app_data_dir())
 
@@ -34,6 +39,7 @@ _ERROR_STATUS: dict[str, int] = {
     "invalid_content": 422,
     "episode_not_found": 404,
     "qa_gate_blocked": 409,
+    "invalid_workflow_gate": 422,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
@@ -46,6 +52,8 @@ def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) ->
     status = _ERROR_STATUS.get(exc.code, 400)
     if exc.code == "qa_gate_blocked" and exc.payload:
         raise HTTPException(status_code=status, detail=exc.payload)
+    if exc.code == "invalid_workflow_gate":
+        raise HTTPException(status_code=status, detail=exc.message or exc.code)
     if exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
     elif exc.code == "episode_not_found":
@@ -91,6 +99,25 @@ async def confirm_script_review(project_name: str, episode: int, _user: CurrentU
     try:
         service = ScriptReviewService(get_project_manager())
         return await asyncio.to_thread(service.confirm, project_name, episode)
+    except ScriptReviewError as exc:
+        _raise_review_error(exc, episode, _t)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+
+
+@router.put("/projects/{project_name}/episodes/{episode}/script-review/workflow-gates/{gate}")
+async def update_script_review_workflow_gate(
+    project_name: str,
+    episode: int,
+    gate: str,
+    req: WorkflowGateReviewRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """Persist an explicit local/manual production gate review flag for this episode."""
+    try:
+        service = ScriptReviewService(get_project_manager())
+        return await asyncio.to_thread(service.set_workflow_review, project_name, episode, gate, req.reviewed)
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError:

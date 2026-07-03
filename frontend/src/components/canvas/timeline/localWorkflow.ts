@@ -19,7 +19,8 @@ export interface LocalWorkflowInput {
   reviewStatus: ScriptReviewStatus;
   qaGateStatus: QaGateStatus;
   storyboardReviewed?: boolean;
-  videoReady?: boolean;
+  videoReviewed?: boolean;
+  exportReviewed?: boolean;
 }
 
 function scriptStatus(input: LocalWorkflowInput): LocalWorkflowStageStatus {
@@ -33,20 +34,21 @@ function scriptStatus(input: LocalWorkflowInput): LocalWorkflowStageStatus {
 export function deriveLocalWorkflowStages(input: LocalWorkflowInput): LocalWorkflowStage[] {
   const script = scriptStatus(input);
   const scriptBlocksDownstream = script === "blocked";
+  const scriptConfirmed = input.reviewStatus === "confirmed";
   const scriptAllowsManualStoryboard = !scriptBlocksDownstream && input.reviewStatus !== "no_step1";
   const storyboard: LocalWorkflowStageStatus = scriptBlocksDownstream
     ? "locked"
-    : input.storyboardReviewed
+    : scriptConfirmed && input.storyboardReviewed
       ? "complete"
       : scriptAllowsManualStoryboard
         ? "ready"
         : "locked";
-  const video: LocalWorkflowStageStatus = input.videoReady
+  const video: LocalWorkflowStageStatus = input.videoReviewed
     ? "complete"
     : storyboard === "complete"
       ? "ready"
       : "locked";
-  const exportStatus: LocalWorkflowStageStatus = input.videoReady ? "ready" : "locked";
+  const exportStatus: LocalWorkflowStageStatus = input.exportReviewed ? "complete" : input.videoReviewed ? "ready" : "locked";
 
   return [
     { id: "brief_gate", status: "complete" },

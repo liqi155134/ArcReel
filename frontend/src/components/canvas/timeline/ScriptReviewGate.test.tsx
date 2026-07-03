@@ -13,6 +13,19 @@ function clearQaState(): Pick<ScriptReviewState, "qa_findings" | "qa_summary" | 
   };
 }
 
+function clearWorkflowState(): Pick<ScriptReviewState, "local_workflow_reviews"> {
+  return {
+    local_workflow_reviews: {
+      storyboard_reviewed: false,
+      storyboard_reviewed_at: null,
+      video_reviewed: false,
+      video_reviewed_at: null,
+      export_reviewed: false,
+      export_reviewed_at: null,
+    },
+  };
+}
+
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
@@ -21,6 +34,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     fingerprint: "fp1",
     confirmed_at: null,
     ...clearQaState(),
+    ...clearWorkflowState(),
     content: {
       title: "第一集",
       scenes: [
@@ -52,6 +66,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     fingerprint: "fp1",
     confirmed_at: null,
     ...clearQaState(),
+    ...clearWorkflowState(),
     content: {
       segments: [
         {
@@ -247,6 +262,51 @@ describe("ScriptReviewGate", () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
+
+
+  it("marks storyboard review manually after script confirmation", async () => {
+    const confirmed = dramaState({ status: "confirmed", confirmed_at: "2026-07-03T00:00:00Z" });
+    const reviewed = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...clearWorkflowState().local_workflow_reviews,
+        storyboard_reviewed: true,
+        storyboard_reviewed_at: "2026-07-03T00:01:00Z",
+      },
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmed);
+    const setGate = vi.spyOn(API, "setScriptReviewWorkflowGate").mockResolvedValue(reviewed);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("标记分镜图已审核")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("标记分镜图已审核"));
+
+    await waitFor(() => expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", true));
+    await waitFor(() => expect(screen.getByText("分镜图已审核")).toBeInTheDocument());
+    expect(screen.getByLabelText("视频生成：就绪")).toBeInTheDocument();
+  });
+
+  it("renders reviewed storyboard gate without the manual mark action", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({
+        status: "confirmed",
+        confirmed_at: "2026-07-03T00:00:00Z",
+        local_workflow_reviews: {
+          ...clearWorkflowState().local_workflow_reviews,
+          storyboard_reviewed: true,
+          storyboard_reviewed_at: "2026-07-03T00:01:00Z",
+        },
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("分镜图已审核")).toBeInTheDocument());
+    expect(screen.queryByText("标记分镜图已审核")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("分镜图审核：完成")).toBeInTheDocument();
+  });
 
   it("renders local workflow overview with blocked script gate and locked video stage", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(

@@ -1099,6 +1099,9 @@ export default {
   'local_workflow_status_warning': '警告',
   'local_workflow_status_blocked': '阻塞',
   'local_workflow_status_locked': '锁定',
+  'local_workflow_mark_storyboard_reviewed': '标记分镜图已审核',
+  'local_workflow_storyboard_reviewed': '分镜图已审核',
+  'local_workflow_review_saved': '本地流程审核状态已保存',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

@@ -24,6 +24,14 @@ describe("deriveLocalWorkflowStages", () => {
     expect(stages.video_gate.status).toBe("locked");
   });
 
+
+  it("does not unlock video from storyboard review while script review is still pending", () => {
+    const stages = stageMap({ reviewStatus: "pending_review", qaGateStatus: "clear", storyboardReviewed: true });
+
+    expect(stages.storyboard_gate.status).toBe("ready");
+    expect(stages.video_gate.status).toBe("locked");
+  });
+
   it("unlocks video generation after script confirmation and storyboard review", () => {
     const stages = stageMap({ reviewStatus: "confirmed", qaGateStatus: "clear", storyboardReviewed: true });
 

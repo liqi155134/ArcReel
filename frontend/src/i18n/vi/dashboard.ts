@@ -1064,6 +1064,9 @@ export default {
   'local_workflow_status_warning': 'Cảnh báo',
   'local_workflow_status_blocked': 'Bị chặn',
   'local_workflow_status_locked': 'Đã khóa',
+  'local_workflow_mark_storyboard_reviewed': 'Đánh dấu storyboard đã duyệt',
+  'local_workflow_storyboard_reviewed': 'Storyboard đã duyệt',
+  'local_workflow_review_saved': 'Đã lưu trạng thái duyệt quy trình cục bộ',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

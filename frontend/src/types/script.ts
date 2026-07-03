@@ -132,6 +132,16 @@ export interface NarrationStep1Draft {
 
 export type QaSeverity = "info" | "warn" | "block";
 export type QaGateStatus = "clear" | "warning" | "blocked";
+export type LocalWorkflowGate = "storyboard" | "video" | "export";
+
+export interface ScriptReviewLocalWorkflowReviews {
+  storyboard_reviewed: boolean;
+  storyboard_reviewed_at: string | null;
+  video_reviewed: boolean;
+  video_reviewed_at: string | null;
+  export_reviewed: boolean;
+  export_reviewed_at: string | null;
+}
 
 export interface ScriptReviewQaFinding {
   code: string;
@@ -167,6 +177,7 @@ export interface ScriptReviewState {
   qa_findings: ScriptReviewQaFinding[];
   qa_summary: ScriptReviewQaSummary;
   qa_gate_status: QaGateStatus;
+  local_workflow_reviews: ScriptReviewLocalWorkflowReviews;
 }
 
 export interface Composition {

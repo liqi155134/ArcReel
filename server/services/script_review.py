@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -21,6 +21,10 @@ from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
 from lib.short_drama_qa import empty_result, evaluate_short_drama_qa, has_blocking_findings
+
+WorkflowGate = Literal["storyboard", "video", "export"]
+_WORKFLOW_GATES: tuple[WorkflowGate, ...] = ("storyboard", "video", "export")
+_WORKFLOW_REVIEW_FIELD = "local_workflow_reviews"
 
 #: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
@@ -79,8 +83,32 @@ class ScriptReviewService:
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,
+            "local_workflow_reviews": _workflow_review_summary(project, episode),
             **qa,
         }
+
+    def set_workflow_review(self, project_name: str, episode: int, gate: str, reviewed: bool) -> dict[str, Any]:
+        """Persist one manual local-production review gate and return the latest script-review state.
+
+        Gate state is stored under ``episodes[i].local_workflow_reviews`` so it stays local to the episode and
+        does not imply any provider work, market automation, or unattended batch execution.
+        """
+        if gate not in _WORKFLOW_GATES:
+            raise ScriptReviewError("invalid_workflow_gate", f"unsupported workflow gate: {gate}")
+        reviewed_at = datetime.now(UTC).isoformat() if reviewed else None
+
+        def _mutate(project: dict[str, Any]) -> None:
+            episode_meta = script_review.find_episode(project, episode)
+            if episode_meta is None:
+                raise ScriptReviewError("episode_not_found")
+            records = episode_meta.setdefault(_WORKFLOW_REVIEW_FIELD, {})
+            if not isinstance(records, dict):
+                records = {}
+                episode_meta[_WORKFLOW_REVIEW_FIELD] = records
+            records[gate] = {"reviewed": reviewed, "reviewed_at": reviewed_at}
+
+        self.pm.update_project(project_name, _mutate)
+        return self.get_state(project_name, episode)
 
     def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
         """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。
@@ -152,3 +180,21 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     """
     data = load_json_or_none(path)
     return data if isinstance(data, dict) else None
+
+
+
+def _workflow_review_summary(project: dict[str, Any], episode: int) -> dict[str, Any]:
+    episode_meta = script_review.find_episode(project, episode) or {}
+    records = episode_meta.get(_WORKFLOW_REVIEW_FIELD)
+    if not isinstance(records, dict):
+        records = {}
+    summary: dict[str, Any] = {}
+    for gate in _WORKFLOW_GATES:
+        record = records.get(gate)
+        if not isinstance(record, dict):
+            record = {}
+        reviewed = record.get("reviewed") is True
+        reviewed_at = record.get("reviewed_at") if isinstance(record.get("reviewed_at"), str) else None
+        summary[f"{gate}_reviewed"] = reviewed
+        summary[f"{gate}_reviewed_at"] = reviewed_at if reviewed else None
+    return summary

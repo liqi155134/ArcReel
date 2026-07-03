@@ -50,6 +50,7 @@ import type {
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationStep1Draft,
+  LocalWorkflowGate,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -793,6 +794,23 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/confirm`,
       { method: "POST" }
+    );
+  }
+
+
+  /** Persist an explicit local/manual production workflow review gate. */
+  static async setScriptReviewWorkflowGate(
+    projectName: string,
+    episode: number,
+    gate: LocalWorkflowGate,
+    reviewed: boolean
+  ): Promise<ScriptReviewState> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/workflow-gates/${gate}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ reviewed }),
+      }
     );
   }
 
