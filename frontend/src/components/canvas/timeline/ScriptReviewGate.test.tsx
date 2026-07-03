@@ -20,14 +20,32 @@ function clearWorkflowState(): Pick<ScriptReviewState, "local_workflow_reviews">
       storyboard_reviewed_at: null,
       storyboard_decision: "pending",
       storyboard_note: "",
+      storyboard_checklist: {
+        character_consistency: false,
+        scene_prop_consistency: false,
+        shot_count: false,
+        prompt_quality: false,
+      },
       video_reviewed: false,
       video_reviewed_at: null,
       video_decision: "pending",
       video_note: "",
+      video_checklist: {
+        motion_continuity: false,
+        face_stability: false,
+        duration_rhythm: false,
+        first_last_frame: false,
+      },
       export_reviewed: false,
       export_reviewed_at: null,
       export_decision: "pending",
       export_note: "",
+      export_checklist: {
+        subtitles_audio: false,
+        aspect_cover: false,
+        file_naming: false,
+        final_playback: false,
+      },
     },
   };
 }
@@ -294,9 +312,61 @@ describe("ScriptReviewGate", () => {
       expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", false, {
         decision: "needs_changes",
         note: "人物脸不一致，重出第 3 镜",
+        checklist: {
+          character_consistency: false,
+          scene_prop_consistency: false,
+          shot_count: false,
+          prompt_quality: false,
+        },
       }),
     );
     await waitFor(() => expect(screen.getByText(/人物脸不一致，重出第 3 镜/)).toBeInTheDocument());
+  });
+
+  it("submits storyboard manual checklist values with the review decision", async () => {
+    const confirmed = dramaState({ status: "confirmed", confirmed_at: "2026-07-03T00:00:00Z" });
+    const needsChanges = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...clearWorkflowState().local_workflow_reviews,
+        storyboard_decision: "needs_changes",
+        storyboard_note: "镜头数量不够，补两个反应镜头。",
+        storyboard_checklist: {
+          character_consistency: true,
+          scene_prop_consistency: true,
+          shot_count: false,
+          prompt_quality: true,
+        },
+      },
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmed);
+    const setGate = vi.spyOn(API, "setScriptReviewWorkflowGate").mockResolvedValue(needsChanges);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByLabelText("角色一致性")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("角色一致性"));
+    fireEvent.click(screen.getByLabelText("场景/道具一致性"));
+    fireEvent.click(screen.getByLabelText("提示词质量"));
+    fireEvent.change(screen.getByLabelText("分镜图人工审核备注"), {
+      target: { value: "镜头数量不够，补两个反应镜头。" },
+    });
+    fireEvent.click(screen.getByText("需要修改"));
+
+    await waitFor(() =>
+      expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", false, {
+        decision: "needs_changes",
+        note: "镜头数量不够，补两个反应镜头。",
+        checklist: {
+          character_consistency: true,
+          scene_prop_consistency: true,
+          shot_count: false,
+          prompt_quality: true,
+        },
+      }),
+    );
+    await waitFor(() => expect(screen.getByText(/镜头数量不够/)).toBeInTheDocument());
   });
 
   it("marks storyboard review manually after script confirmation", async () => {
@@ -322,6 +392,12 @@ describe("ScriptReviewGate", () => {
       expect(setGate).toHaveBeenCalledWith("p", 1, "storyboard", true, {
         decision: "approved",
         note: "",
+        checklist: {
+          character_consistency: false,
+          scene_prop_consistency: false,
+          shot_count: false,
+          prompt_quality: false,
+        },
       }),
     );
     await waitFor(() => expect(screen.getByText("分镜图已审核")).toBeInTheDocument());
@@ -394,6 +470,12 @@ describe("ScriptReviewGate", () => {
       expect(setGate).toHaveBeenCalledWith("p", 1, "video", true, {
         decision: "approved",
         note: "",
+        checklist: {
+          motion_continuity: false,
+          face_stability: false,
+          duration_rhythm: false,
+          first_last_frame: false,
+        },
       }),
     );
     await waitFor(() => expect(screen.getByText("视频已审核")).toBeInTheDocument());
@@ -405,6 +487,12 @@ describe("ScriptReviewGate", () => {
       expect(setGate).toHaveBeenCalledWith("p", 1, "export", true, {
         decision: "approved",
         note: "",
+        checklist: {
+          subtitles_audio: false,
+          aspect_cover: false,
+          file_naming: false,
+          final_playback: false,
+        },
       }),
     );
     await waitFor(() => expect(screen.getByText("导出已审核")).toBeInTheDocument());

@@ -26,6 +26,11 @@ WorkflowGate = Literal["storyboard", "video", "export"]
 WorkflowDecision = Literal["pending", "approved", "needs_changes", "skipped"]
 _WORKFLOW_GATES: tuple[WorkflowGate, ...] = ("storyboard", "video", "export")
 _WORKFLOW_DECISIONS: tuple[WorkflowDecision, ...] = ("pending", "approved", "needs_changes", "skipped")
+_WORKFLOW_CHECKLISTS: dict[WorkflowGate, tuple[str, ...]] = {
+    "storyboard": ("character_consistency", "scene_prop_consistency", "shot_count", "prompt_quality"),
+    "video": ("motion_continuity", "face_stability", "duration_rhythm", "first_last_frame"),
+    "export": ("subtitles_audio", "aspect_cover", "file_naming", "final_playback"),
+}
 _WORKFLOW_REVIEW_FIELD = "local_workflow_reviews"
 
 #: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
@@ -97,6 +102,7 @@ class ScriptReviewService:
         reviewed: bool,
         decision: str | None = None,
         note: str | None = None,
+        checklist: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         """Persist one manual local-production review gate and return the latest script-review state.
 
@@ -105,8 +111,10 @@ class ScriptReviewService:
         """
         if gate not in _WORKFLOW_GATES:
             raise ScriptReviewError("invalid_workflow_gate", f"unsupported workflow gate: {gate}")
+        workflow_gate = cast(WorkflowGate, gate)
         normalized_decision = _normalize_workflow_decision(reviewed, decision)
         normalized_note = _normalize_workflow_note(note)
+        normalized_checklist = _normalize_workflow_checklist(workflow_gate, checklist)
         reviewed_at = datetime.now(UTC).isoformat() if reviewed else None
 
         def _mutate(project: dict[str, Any]) -> None:
@@ -122,6 +130,7 @@ class ScriptReviewService:
                 "reviewed_at": reviewed_at,
                 "decision": normalized_decision,
                 "note": normalized_note,
+                "checklist": normalized_checklist,
             }
 
         self.pm.update_project(project_name, _mutate)
@@ -213,10 +222,12 @@ def _workflow_review_summary(project: dict[str, Any], episode: int) -> dict[str,
         reviewed_at = record.get("reviewed_at") if isinstance(record.get("reviewed_at"), str) else None
         decision = record.get("decision") if record.get("decision") in _WORKFLOW_DECISIONS else None
         note = record.get("note") if isinstance(record.get("note"), str) else ""
+        checklist = record.get("checklist") if isinstance(record.get("checklist"), dict) else None
         summary[f"{gate}_reviewed"] = reviewed
         summary[f"{gate}_reviewed_at"] = reviewed_at if reviewed else None
         summary[f"{gate}_decision"] = decision or ("approved" if reviewed else "pending")
         summary[f"{gate}_note"] = note
+        summary[f"{gate}_checklist"] = _normalize_workflow_checklist(gate, checklist)
     return summary
 
 
@@ -234,3 +245,16 @@ def _normalize_workflow_note(note: str | None) -> str:
     if note is None:
         return ""
     return note.strip()[:1000]
+
+
+def _normalize_workflow_checklist(gate: WorkflowGate, checklist: object | None) -> dict[str, bool]:
+    values = {key: False for key in _WORKFLOW_CHECKLISTS[gate]}
+    if checklist is None:
+        return values
+    if not isinstance(checklist, dict):
+        raise ScriptReviewError("invalid_workflow_checklist", "workflow checklist must be an object")
+    for key, value in checklist.items():
+        if key not in values:
+            raise ScriptReviewError("invalid_workflow_checklist", f"unsupported workflow checklist item: {key}")
+        values[key] = value is True
+    return values

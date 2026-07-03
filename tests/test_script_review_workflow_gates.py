@@ -75,14 +75,32 @@ def test_get_state_defaults_local_workflow_reviews_to_false(tmp_path: Path) -> N
         "storyboard_reviewed_at": None,
         "storyboard_decision": "pending",
         "storyboard_note": "",
+        "storyboard_checklist": {
+            "character_consistency": False,
+            "scene_prop_consistency": False,
+            "shot_count": False,
+            "prompt_quality": False,
+        },
         "video_reviewed": False,
         "video_reviewed_at": None,
         "video_decision": "pending",
         "video_note": "",
+        "video_checklist": {
+            "motion_continuity": False,
+            "face_stability": False,
+            "duration_rhythm": False,
+            "first_last_frame": False,
+        },
         "export_reviewed": False,
         "export_reviewed_at": None,
         "export_decision": "pending",
         "export_note": "",
+        "export_checklist": {
+            "subtitles_audio": False,
+            "aspect_cover": False,
+            "file_naming": False,
+            "final_playback": False,
+        },
     }
 
 
@@ -130,17 +148,72 @@ def test_set_workflow_review_persists_human_decision_and_note(tmp_path: Path) ->
     assert record["note"] == "第 3 镜角色脸不一致，先重出分镜图。"
 
 
+def test_set_workflow_review_persists_manual_checklist(tmp_path: Path) -> None:
+    pm = _make_project(tmp_path)
+    svc = ScriptReviewService(pm)
+
+    state = svc.set_workflow_review(
+        "demo",
+        1,
+        "video",
+        False,
+        decision="needs_changes",
+        note="第 2 段脸部漂移，重生视频。",
+        checklist={
+            "motion_continuity": True,
+            "face_stability": False,
+            "duration_rhythm": True,
+            "first_last_frame": False,
+        },
+    )
+
+    reviews = state["local_workflow_reviews"]
+    assert reviews["video_checklist"] == {
+        "motion_continuity": True,
+        "face_stability": False,
+        "duration_rhythm": True,
+        "first_last_frame": False,
+    }
+
+    episode_meta = pm.load_project("demo")["episodes"][0]
+    assert episode_meta["local_workflow_reviews"]["video"]["checklist"] == {
+        "motion_continuity": True,
+        "face_stability": False,
+        "duration_rhythm": True,
+        "first_last_frame": False,
+    }
+
+
 def test_router_updates_local_workflow_gate(tmp_path: Path, monkeypatch) -> None:
     client, pm = _client(monkeypatch, tmp_path)
     with client:
         base = "/api/v1/projects/demo/episodes/1/script-review/workflow-gates/storyboard"
-        resp = client.put(base, json={"reviewed": False, "decision": "needs_changes", "note": "先换首帧"})
+        resp = client.put(
+            base,
+            json={
+                "reviewed": False,
+                "decision": "needs_changes",
+                "note": "先换首帧",
+                "checklist": {
+                    "character_consistency": True,
+                    "scene_prop_consistency": True,
+                    "shot_count": False,
+                    "prompt_quality": True,
+                },
+            },
+        )
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["local_workflow_reviews"]["storyboard_reviewed"] is False
         assert body["local_workflow_reviews"]["storyboard_decision"] == "needs_changes"
         assert body["local_workflow_reviews"]["storyboard_note"] == "先换首帧"
+        assert body["local_workflow_reviews"]["storyboard_checklist"] == {
+            "character_consistency": True,
+            "scene_prop_consistency": True,
+            "shot_count": False,
+            "prompt_quality": True,
+        }
         assert pm.load_project("demo")["episodes"][0]["local_workflow_reviews"]["storyboard"]["reviewed"] is False
 
 

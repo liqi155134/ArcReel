@@ -134,10 +134,12 @@ export type QaSeverity = "info" | "warn" | "block";
 export type QaGateStatus = "clear" | "warning" | "blocked";
 export type LocalWorkflowGate = "storyboard" | "video" | "export";
 export type LocalWorkflowDecision = "pending" | "approved" | "needs_changes" | "skipped";
+export type LocalWorkflowChecklist = Record<string, boolean>;
 
 export interface LocalWorkflowReviewUpdate {
   decision?: LocalWorkflowDecision;
   note?: string;
+  checklist?: LocalWorkflowChecklist;
 }
 
 export interface ScriptReviewLocalWorkflowReviews {
@@ -145,14 +147,17 @@ export interface ScriptReviewLocalWorkflowReviews {
   storyboard_reviewed_at: string | null;
   storyboard_decision: LocalWorkflowDecision;
   storyboard_note: string;
+  storyboard_checklist: LocalWorkflowChecklist;
   video_reviewed: boolean;
   video_reviewed_at: string | null;
   video_decision: LocalWorkflowDecision;
   video_note: string;
+  video_checklist: LocalWorkflowChecklist;
   export_reviewed: boolean;
   export_reviewed_at: string | null;
   export_decision: LocalWorkflowDecision;
   export_note: string;
+  export_checklist: LocalWorkflowChecklist;
 }
 
 export interface ScriptReviewQaFinding {

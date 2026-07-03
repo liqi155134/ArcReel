@@ -11,6 +11,7 @@ import type {
   Utterance,
   LocalWorkflowGate,
   LocalWorkflowDecision,
+  LocalWorkflowChecklist,
   LocalWorkflowReviewUpdate,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
@@ -146,6 +147,12 @@ const WORKFLOW_REVIEW_BADGE_COMPLETE_CLS =
 const WORKFLOW_REVIEW_BADGE_WARNING_CLS =
   "rounded border border-amber-400/30 bg-amber-950/15 px-2 py-1 text-[11.5px] text-amber-200";
 
+const WORKFLOW_CHECKLIST_ITEMS: Record<LocalWorkflowGate, readonly string[]> = {
+  storyboard: ["character_consistency", "scene_prop_consistency", "shot_count", "prompt_quality"],
+  video: ["motion_continuity", "face_stability", "duration_rhythm", "first_last_frame"],
+  export: ["subtitles_audio", "aspect_cover", "file_naming", "final_playback"],
+};
+
 function LocalWorkflowOverview({
   state,
   busy,
@@ -161,6 +168,11 @@ function LocalWorkflowOverview({
     storyboard: workflow.storyboard_note,
     video: workflow.video_note,
     export: workflow.export_note,
+  });
+  const [reviewChecklists, setReviewChecklists] = useState<Record<LocalWorkflowGate, LocalWorkflowChecklist>>({
+    storyboard: workflow.storyboard_checklist,
+    video: workflow.video_checklist,
+    export: workflow.export_checklist,
   });
   const stages = deriveLocalWorkflowStages({
     reviewStatus: state.status,
@@ -180,46 +192,71 @@ function LocalWorkflowOverview({
     canReview: boolean,
     noteLabelKey: string,
     approveLabelKey: string,
-  ) =>
-    canReview ? (
-      <div className="flex w-full flex-wrap items-center gap-2">
-        <input
-          aria-label={t(noteLabelKey)}
-          value={reviewNotes[gate]}
-          onChange={(event) => setReviewNotes((prev) => ({ ...prev, [gate]: event.target.value }))}
-          placeholder={t("local_workflow_review_note_placeholder")}
-          className="min-w-64 flex-1 rounded border border-hairline bg-bg/50 px-2 py-1 text-[12px] text-text-2 outline-none focus:border-accent"
-        />
-        <button
-          type="button"
-          className={GHOST_BTN_CLS}
-          disabled={busy}
-          onClick={() =>
-            onSetWorkflowGate(gate, false, {
-              decision: "needs_changes",
-              note: reviewNotes[gate],
-            })
-          }
-        >
-          <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("local_workflow_needs_changes")}
-        </button>
-        <button
-          type="button"
-          className={GHOST_BTN_CLS}
-          disabled={busy}
-          onClick={() =>
-            onSetWorkflowGate(gate, true, {
-              decision: "approved",
-              note: reviewNotes[gate],
-            })
-          }
-        >
-          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-          {t(approveLabelKey)}
-        </button>
+  ) => {
+    const submitReview = (reviewed: boolean, decision: LocalWorkflowDecision) =>
+      onSetWorkflowGate(gate, reviewed, {
+        decision,
+        note: reviewNotes[gate],
+        checklist: reviewChecklists[gate],
+      });
+
+    if (!canReview) return null;
+    return (
+      <div className="grid w-full gap-2">
+        <div className="rounded-[8px] border border-hairline bg-bg/30 px-2.5 py-2">
+          <div className="mb-1 text-[11px] font-medium text-text-3">{t("local_workflow_checklist_title")}</div>
+          <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-4">
+            {WORKFLOW_CHECKLIST_ITEMS[gate].map((item) => (
+              <label key={item} className="flex items-center gap-1.5 text-[11.5px] text-text-3">
+                <input
+                  type="checkbox"
+                  checked={reviewChecklists[gate][item] === true}
+                  onChange={(event) =>
+                    setReviewChecklists((prev) => ({
+                      ...prev,
+                      [gate]: {
+                        ...prev[gate],
+                        [item]: event.target.checked,
+                      },
+                    }))
+                  }
+                  className="h-3.5 w-3.5 accent-accent"
+                />
+                {t(`local_workflow_checklist_${item}`)}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            aria-label={t(noteLabelKey)}
+            value={reviewNotes[gate]}
+            onChange={(event) => setReviewNotes((prev) => ({ ...prev, [gate]: event.target.value }))}
+            placeholder={t("local_workflow_review_note_placeholder")}
+            className="min-w-64 flex-1 rounded border border-hairline bg-bg/50 px-2 py-1 text-[12px] text-text-2 outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            className={GHOST_BTN_CLS}
+            disabled={busy}
+            onClick={() => submitReview(false, "needs_changes")}
+          >
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("local_workflow_needs_changes")}
+          </button>
+          <button
+            type="button"
+            className={GHOST_BTN_CLS}
+            disabled={busy}
+            onClick={() => submitReview(true, "approved")}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            {t(approveLabelKey)}
+          </button>
+        </div>
       </div>
-    ) : null;
+    );
+  };
   const renderReviewBadge = (
     reviewed: boolean,
     decision: LocalWorkflowDecision,

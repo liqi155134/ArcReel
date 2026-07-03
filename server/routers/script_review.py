@@ -26,6 +26,7 @@ class WorkflowGateReviewRequest(BaseModel):
     reviewed: bool
     decision: str | None = None
     note: str | None = None
+    checklist: dict[str, bool] | None = None
 
 pm = ProjectManager(app_data_dir())
 
@@ -43,6 +44,7 @@ _ERROR_STATUS: dict[str, int] = {
     "qa_gate_blocked": 409,
     "invalid_workflow_gate": 422,
     "invalid_workflow_decision": 422,
+    "invalid_workflow_checklist": 422,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
@@ -55,7 +57,7 @@ def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) ->
     status = _ERROR_STATUS.get(exc.code, 400)
     if exc.code == "qa_gate_blocked" and exc.payload:
         raise HTTPException(status_code=status, detail=exc.payload)
-    if exc.code in {"invalid_workflow_gate", "invalid_workflow_decision"}:
+    if exc.code in {"invalid_workflow_gate", "invalid_workflow_decision", "invalid_workflow_checklist"}:
         raise HTTPException(status_code=status, detail=exc.message or exc.code)
     if exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
@@ -121,7 +123,14 @@ async def update_script_review_workflow_gate(
     try:
         service = ScriptReviewService(get_project_manager())
         return await asyncio.to_thread(
-            service.set_workflow_review, project_name, episode, gate, req.reviewed, req.decision, req.note
+            service.set_workflow_review,
+            project_name,
+            episode,
+            gate,
+            req.reviewed,
+            req.decision,
+            req.note,
+            req.checklist,
         )
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
