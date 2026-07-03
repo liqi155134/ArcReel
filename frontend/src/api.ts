@@ -50,6 +50,8 @@ import type {
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationStep1Draft,
+  ClaudeDraftArtifact,
+  ClaudeDraftRequest,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -839,6 +841,42 @@ class API {
         method: "PUT",
         body: JSON.stringify(payload),
       }
+    );
+  }
+
+  /** 创建一次显式 Claude draft-only 草稿；只返回 artifact，不确认 gate、不触发媒体生成。 */
+  static async createClaudeDraft(
+    projectName: string,
+    payload: ClaudeDraftRequest
+  ): Promise<ClaudeDraftArtifact> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/claude-drafts`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /** 列出 Claude draft-only artifact；只读，不启动 Claude。 */
+  static async listClaudeDrafts(
+    projectName: string,
+    episode?: number | null
+  ): Promise<ClaudeDraftArtifact[]> {
+    const query = episode == null ? "" : `?episode=${encodeURIComponent(String(episode))}`;
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/claude-drafts${query}`
+    );
+  }
+
+  /** 读取单个 Claude draft-only artifact；artifact_id 可包含 episode 子路径。 */
+  static async getClaudeDraft(
+    projectName: string,
+    artifactId: string
+  ): Promise<ClaudeDraftArtifact> {
+    const encodedArtifactId = artifactId.split("/").map(encodeURIComponent).join("/");
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/claude-drafts/${encodedArtifactId}`
     );
   }
 

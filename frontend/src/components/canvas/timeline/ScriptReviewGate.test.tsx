@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import type { ScriptReviewState } from "@/types";
+import type { ClaudeDraftArtifact, ScriptReviewState } from "@/types";
 
 const localWorkflowReviews = {
   storyboard_reviewed: false,
@@ -106,6 +106,33 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
   };
 }
 
+function claudeDraftArtifact(overrides: Partial<ClaudeDraftArtifact> = {}): ClaudeDraftArtifact {
+  return {
+    schema_version: 1,
+    artifact_id: "1/20260703T000000000000Z-script_review_notes-test.json",
+    intent: "script_review_notes",
+    project_name: "p",
+    episode: 1,
+    created_at: "2026-07-03T00:00:00Z",
+    status: "succeeded",
+    context_hash: "sha256:test",
+    policy: {
+      permission_mode: "plan",
+      tools: [],
+      draft_only: true,
+      env_scrubbed: true,
+    },
+    input_summary: {},
+    output: {
+      summary: "建议加强开场钩子。",
+      findings: [{ code: "weak_hook", message: "第一镜缺少强刺激。" }],
+      proposed_patch: null,
+      raw_text: "",
+    },
+    ...overrides,
+  };
+}
+
 describe("ScriptReviewGate", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -152,6 +179,67 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByText("missing_prop_reference")).toBeInTheDocument();
     expect(screen.getByText("存在阻断项，需先修正后才能确认放行。")).toBeInTheDocument();
     expect(screen.getByText("确认并继续").closest("button")).toBeDisabled();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("shows a draft-only Claude panel and creates a review draft without confirming gates", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    const createDraft = vi.spyOn(API, "createClaudeDraft").mockResolvedValue(claudeDraftArtifact());
+    const confirm = vi.spyOn(API, "confirmScriptReview").mockResolvedValue(dramaState({ status: "confirmed" }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("Claude 草稿助手")).toBeInTheDocument());
+    expect(screen.getByText("只创建草稿，不放行审核，不生成媒体。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "向 Claude 请求审核草稿" }));
+
+    await waitFor(() =>
+      expect(createDraft).toHaveBeenCalledWith("p", {
+        intent: "script_review_notes",
+        episode: 1,
+        instruction: "",
+        timeout_seconds: 120,
+      }),
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await screen.findByText("Claude 草稿摘要")).toBeInTheDocument();
+    expect(screen.getByText("建议加强开场钩子。")).toBeInTheDocument();
+    expect(screen.getByText("weak_hook")).toBeInTheDocument();
+  });
+
+  it("keeps blocked QA confirmation disabled after a Claude draft result", async () => {
+    const blockedState = dramaState({
+      qa_gate_status: "blocked",
+      qa_summary: {
+        info_count: 0,
+        warn_count: 0,
+        block_count: 1,
+        gate_status: "blocked",
+        top_codes: ["missing_prop_reference"],
+      },
+      qa_findings: [
+        {
+          code: "missing_prop_reference",
+          severity: "block",
+          message: "E1S01 引用了未登记的 props 资产。",
+        },
+      ],
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(blockedState);
+    vi.spyOn(API, "createClaudeDraft").mockResolvedValue(claudeDraftArtifact());
+    const confirm = vi.spyOn(API, "confirmScriptReview").mockResolvedValue(dramaState({ status: "confirmed" }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("存在阻断项，需先修正后才能确认放行。")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "向 Claude 请求审核草稿" }));
+
+    await waitFor(() => expect(screen.getByText("Claude 草稿摘要")).toBeInTheDocument());
+    expect(screen.getByText("存在阻断项，需先修正后才能确认放行。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
     expect(confirm).not.toHaveBeenCalled();
   });
 

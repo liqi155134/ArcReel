@@ -523,6 +523,31 @@ describe("API", () => {
         }),
       });
     });
+
+    it("covers Claude draft-only bridge endpoints", async () => {
+      const requestSpy = vi.spyOn(API, "request").mockResolvedValue({ artifact_id: "1/draft.json" } as never);
+
+      await API.createClaudeDraft("a b", {
+        intent: "script_review_notes",
+        episode: 1,
+        instruction: "请审阅",
+        timeout_seconds: 120,
+      });
+      await API.listClaudeDrafts("a b", 1);
+      await API.getClaudeDraft("a b", "1/draft.json");
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/claude-drafts", {
+        method: "POST",
+        body: JSON.stringify({
+          intent: "script_review_notes",
+          episode: 1,
+          instruction: "请审阅",
+          timeout_seconds: 120,
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/claude-drafts?episode=1");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/claude-drafts/1/draft.json");
+    });
   });
 
   describe("fetch-based wrappers", () => {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, Clock, Lock, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clipboard, Clock, Lock, RotateCcw, Save, WandSparkles } from "lucide-react";
 import { API } from "@/api";
 import type {
+  ClaudeDraftArtifact,
+  ClaudeDraftFinding,
   DramaNormalizedScript,
   DramaSceneContent,
   NarrationStep1Draft,
@@ -120,6 +122,114 @@ function QaReviewPanel({ state }: { state: ScriptReviewState }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function claudeDraftFindingLabel(finding: ClaudeDraftFinding, index: number): string {
+  return finding.code || finding.message || `finding-${index + 1}`;
+}
+
+function formatClaudeDraftPreview(artifact: ClaudeDraftArtifact): string {
+  const lines = [artifact.output.summary.trim()].filter(Boolean);
+  if (artifact.output.findings.length > 0) {
+    lines.push(
+      "",
+      ...artifact.output.findings.map((finding, index) => {
+        const label = claudeDraftFindingLabel(finding, index);
+        return finding.message ? `- ${label}: ${finding.message}` : `- ${label}`;
+      }),
+    );
+  }
+  if (artifact.output.raw_text) {
+    lines.push("", artifact.output.raw_text);
+  }
+  return lines.join("\n");
+}
+
+function ClaudeDraftReviewPanel({
+  artifact,
+  disabled,
+  instruction,
+  running,
+  onCopy,
+  onCreate,
+  onInstructionChange,
+}: {
+  artifact: ClaudeDraftArtifact | null;
+  disabled: boolean;
+  instruction: string;
+  running: boolean;
+  onCopy: () => Promise<void>;
+  onCreate: () => Promise<void>;
+  onInstructionChange: (value: string) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <section className="rounded-[10px] border border-sky-500/25 bg-sky-500/5 px-3.5 py-2.5">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 gap-2">
+          <WandSparkles className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
+          <div className="min-w-0">
+            <h3 className="text-[12.5px] font-medium text-text">{t("claude_draft_title")}</h3>
+            <p className="mt-0.5 text-[11px] text-sky-100">{t("claude_draft_warning")}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={voidPromise(onCreate)}
+          disabled={disabled || running}
+          className={GHOST_BTN_CLS}
+        >
+          <WandSparkles className="h-3.5 w-3.5" aria-hidden="true" />
+          {running ? t("claude_draft_running") : t("claude_draft_action")}
+        </button>
+      </div>
+
+      <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
+        {t("claude_draft_instruction_label")}
+      </label>
+      <AutoTextarea
+        value={instruction}
+        disabled={disabled || running}
+        onChange={onInstructionChange}
+        placeholder={t("claude_draft_instruction_placeholder")}
+        aria-label={t("claude_draft_instruction_label")}
+        className="min-h-[44px] text-text-3"
+      />
+
+      {artifact ? (
+        <div className="mt-3 rounded-[10px] border border-hairline p-3" style={CARD_STYLE}>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h4 className="text-[12px] font-medium text-text">{t("claude_draft_summary_title")}</h4>
+            <button type="button" onClick={voidPromise(onCopy)} className={GHOST_BTN_CLS}>
+              <Clipboard className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("claude_draft_copy")}
+            </button>
+          </div>
+          {artifact.output.summary ? <p className="text-[12px] text-text-2">{artifact.output.summary}</p> : null}
+          {artifact.output.findings.length > 0 ? (
+            <div className="mt-2">
+              <div className="mb-1 text-[10.5px]" style={SECTION_LABEL_STYLE}>
+                {t("claude_draft_findings_title")}
+              </div>
+              <ul className="flex flex-col gap-1">
+                {artifact.output.findings.map((finding, index) => (
+                  <li
+                    key={`${claudeDraftFindingLabel(finding, index)}-${index}`}
+                    className="rounded border border-hairline bg-bg-grad-a/40 px-2 py-1.5 text-[11px] text-text-3"
+                  >
+                    <span className="font-mono text-[10.5px] text-sky-200">
+                      {claudeDraftFindingLabel(finding, index)}
+                    </span>
+                    {finding.message ? <p className="mt-0.5 text-text-2">{finding.message}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -246,6 +356,9 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const [reloadNonce, setReloadNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [claudeDraftInstruction, setClaudeDraftInstruction] = useState("");
+  const [claudeDraft, setClaudeDraft] = useState<ClaudeDraftArtifact | null>(null);
+  const [claudeDrafting, setClaudeDrafting] = useState(false);
 
   const serverContent = state?.content ?? null;
   const dirty = useMemo(() => isDirty(draft, serverContent), [draft, serverContent]);
@@ -342,6 +455,37 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
       setConfirming(false);
     }
   }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
+
+  const handleCreateClaudeDraft = useCallback(async () => {
+    setClaudeDrafting(true);
+    try {
+      const artifact = await API.createClaudeDraft(projectName, {
+        intent: "script_review_notes",
+        episode,
+        instruction: claudeDraftInstruction.trim(),
+        timeout_seconds: 120,
+      });
+      setClaudeDraft(artifact);
+      pushToast(t("dashboard:claude_draft_created"), "success");
+    } catch (err) {
+      pushToast(errorMessage(err) || t("dashboard:claude_draft_failed"), "error");
+    } finally {
+      setClaudeDrafting(false);
+    }
+  }, [claudeDraftInstruction, episode, projectName, pushToast, t]);
+
+  const handleCopyClaudeDraft = useCallback(async () => {
+    if (!claudeDraft) return;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(formatClaudeDraftPreview(claudeDraft));
+      pushToast(t("dashboard:claude_draft_copied"), "success");
+    } catch {
+      pushToast(t("dashboard:claude_draft_copy_failed"), "error");
+    }
+  }, [claudeDraft, pushToast, t]);
 
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {
@@ -440,6 +584,16 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
       </header>
 
       {state ? <QaReviewPanel state={state} /> : null}
+
+      <ClaudeDraftReviewPanel
+        artifact={claudeDraft}
+        disabled={busy}
+        instruction={claudeDraftInstruction}
+        running={claudeDrafting}
+        onCopy={handleCopyClaudeDraft}
+        onCreate={handleCreateClaudeDraft}
+        onInstructionChange={setClaudeDraftInstruction}
+      />
 
       {/* 结构化中间态卡片 */}
       <div className="flex flex-col gap-2.5">
