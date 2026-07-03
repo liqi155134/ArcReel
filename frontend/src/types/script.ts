@@ -142,6 +142,24 @@ export interface LocalWorkflowReviewUpdate {
   checklist?: LocalWorkflowChecklist;
 }
 
+export interface LocalWorkflowArtifactRecord {
+  path: string;
+  url: string;
+  note: string;
+  updated_at: string | null;
+}
+
+export interface LocalWorkflowArtifactUpdate {
+  path?: string;
+  url?: string;
+  note?: string;
+}
+
+export interface LocalWorkflowArtifactsUpdate {
+  seedance_prompt?: string;
+  artifacts?: Partial<Record<LocalWorkflowGate, LocalWorkflowArtifactUpdate>>;
+}
+
 export interface ScriptReviewLocalWorkflowReviews {
   storyboard_reviewed: boolean;
   storyboard_reviewed_at: string | null;
@@ -158,6 +176,13 @@ export interface ScriptReviewLocalWorkflowReviews {
   export_decision: LocalWorkflowDecision;
   export_note: string;
   export_checklist: LocalWorkflowChecklist;
+}
+
+export interface ScriptReviewLocalWorkflowArtifacts {
+  seedance_prompt: string;
+  storyboard: LocalWorkflowArtifactRecord;
+  video: LocalWorkflowArtifactRecord;
+  export: LocalWorkflowArtifactRecord;
 }
 
 export interface ScriptReviewQaFinding {
@@ -195,6 +220,7 @@ export interface ScriptReviewState {
   qa_summary: ScriptReviewQaSummary;
   qa_gate_status: QaGateStatus;
   local_workflow_reviews: ScriptReviewLocalWorkflowReviews;
+  local_workflow_artifacts: ScriptReviewLocalWorkflowArtifacts;
 }
 
 export interface Composition {

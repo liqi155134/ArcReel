@@ -477,6 +477,14 @@ describe("API", () => {
           prompt_quality: true,
         },
       });
+      await API.setScriptReviewWorkflowArtifacts("a b", 5, {
+        seedance_prompt: "E1S01: 人工 Seedance prompt",
+        artifacts: {
+          storyboard: { path: "storyboards/e1.png", url: "", note: "人工分镜" },
+          video: { path: "videos/e1.mp4", url: "", note: "人工视频" },
+          export: { path: "exports/e1.mp4", url: "", note: "成片" },
+        },
+      });
 
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review");
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/2/script-review/content", {
@@ -497,6 +505,17 @@ describe("API", () => {
             scene_prop_consistency: true,
             shot_count: true,
             prompt_quality: true,
+          },
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/5/script-review/workflow-artifacts", {
+        method: "PUT",
+        body: JSON.stringify({
+          seedance_prompt: "E1S01: 人工 Seedance prompt",
+          artifacts: {
+            storyboard: { path: "storyboards/e1.png", url: "", note: "人工分镜" },
+            video: { path: "videos/e1.mp4", url: "", note: "人工视频" },
+            export: { path: "exports/e1.mp4", url: "", note: "成片" },
           },
         }),
       });

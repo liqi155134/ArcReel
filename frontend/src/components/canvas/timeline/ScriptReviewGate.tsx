@@ -13,6 +13,8 @@ import type {
   LocalWorkflowDecision,
   LocalWorkflowChecklist,
   LocalWorkflowReviewUpdate,
+  LocalWorkflowArtifactsUpdate,
+  ScriptReviewLocalWorkflowArtifacts,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { voidPromise } from "@/utils/async";
@@ -155,19 +157,76 @@ const WORKFLOW_CHECKLIST_ITEMS: Record<LocalWorkflowGate, readonly string[]> = {
 
 const WORKFLOW_REVIEW_GATES = ["storyboard", "video", "export"] as const;
 
+type EditableWorkflowArtifacts = Record<LocalWorkflowGate, { path: string; url: string; note: string }>;
+
+function editableArtifactsFromState(artifacts: ScriptReviewLocalWorkflowArtifacts): EditableWorkflowArtifacts {
+  return {
+    storyboard: {
+      path: artifacts.storyboard.path,
+      url: artifacts.storyboard.url,
+      note: artifacts.storyboard.note,
+    },
+    video: {
+      path: artifacts.video.path,
+      url: artifacts.video.url,
+      note: artifacts.video.note,
+    },
+    export: {
+      path: artifacts.export.path,
+      url: artifacts.export.url,
+      note: artifacts.export.note,
+    },
+  };
+}
+
+function readString(record: Record<string, unknown> | null, key: string): string {
+  const value = record?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function artifactUpdateFromPackageJson(packageJson: string): LocalWorkflowArtifactsUpdate | null {
+  const parsed = asRecord(JSON.parse(packageJson) as unknown);
+  if (!parsed) return null;
+  const importedLedger = asRecord(parsed.local_workflow_artifacts) ?? parsed;
+  const artifacts: EditableWorkflowArtifacts = {
+    storyboard: { path: "", url: "", note: "" },
+    video: { path: "", url: "", note: "" },
+    export: { path: "", url: "", note: "" },
+  };
+  for (const gate of WORKFLOW_REVIEW_GATES) {
+    const record = asRecord(importedLedger[gate]);
+    artifacts[gate] = {
+      path: readString(record, "path"),
+      url: readString(record, "url"),
+      note: readString(record, "note"),
+    };
+  }
+  return {
+    seedance_prompt: readString(importedLedger, "seedance_prompt") || readString(parsed, "seedance_prompt"),
+    artifacts,
+  };
+}
+
 function LocalWorkflowOverview({
   projectName,
   state,
   busy,
   onSetWorkflowGate,
+  onSetWorkflowArtifacts,
 }: {
   projectName: string;
   state: ScriptReviewState;
   busy: boolean;
   onSetWorkflowGate: (gate: LocalWorkflowGate, reviewed: boolean, review?: LocalWorkflowReviewUpdate) => void;
+  onSetWorkflowArtifacts: (update: LocalWorkflowArtifactsUpdate) => void;
 }) {
   const { t } = useTranslation("dashboard");
   const workflow = state.local_workflow_reviews;
+  const artifacts = state.local_workflow_artifacts;
   const [reviewNotes, setReviewNotes] = useState<Record<LocalWorkflowGate, string>>({
     storyboard: workflow.storyboard_note,
     video: workflow.video_note,
@@ -179,7 +238,9 @@ function LocalWorkflowOverview({
     export: workflow.export_checklist,
   });
   const [promptImportOpen, setPromptImportOpen] = useState(false);
-  const [seedancePrompt, setSeedancePrompt] = useState("");
+  const [seedancePrompt, setSeedancePrompt] = useState(artifacts.seedance_prompt);
+  const [artifactRecords, setArtifactRecords] = useState<EditableWorkflowArtifacts>(() => editableArtifactsFromState(artifacts));
+  const [packageImportJson, setPackageImportJson] = useState("");
   const stages = deriveLocalWorkflowStages({
     reviewStatus: state.status,
     qaGateStatus: state.qa_gate_status,
@@ -231,6 +292,50 @@ function LocalWorkflowOverview({
         .filter((item) => rework.checklist[item] !== true)
         .map((item) => t(`local_workflow_checklist_${item}`))
     : [];
+  const buildCurrentArtifacts = (): ScriptReviewLocalWorkflowArtifacts => ({
+    seedance_prompt: seedancePrompt,
+    storyboard: { ...artifacts.storyboard, ...artifactRecords.storyboard },
+    video: { ...artifacts.video, ...artifactRecords.video },
+    export: { ...artifacts.export, ...artifactRecords.export },
+  });
+  const buildArtifactUpdate = (): LocalWorkflowArtifactsUpdate => ({
+    seedance_prompt: seedancePrompt,
+    artifacts: {
+      storyboard: artifactRecords.storyboard,
+      video: artifactRecords.video,
+      export: artifactRecords.export,
+    },
+  });
+  const saveWorkflowArtifacts = () => {
+    onSetWorkflowArtifacts(buildArtifactUpdate());
+  };
+  const applyImportedPackage = () => {
+    try {
+      const update = artifactUpdateFromPackageJson(packageImportJson);
+      if (!update?.artifacts) return;
+      setSeedancePrompt(update.seedance_prompt ?? "");
+      setArtifactRecords({
+        storyboard: {
+          path: update.artifacts.storyboard?.path ?? "",
+          url: update.artifacts.storyboard?.url ?? "",
+          note: update.artifacts.storyboard?.note ?? "",
+        },
+        video: {
+          path: update.artifacts.video?.path ?? "",
+          url: update.artifacts.video?.url ?? "",
+          note: update.artifacts.video?.note ?? "",
+        },
+        export: {
+          path: update.artifacts.export?.path ?? "",
+          url: update.artifacts.export?.url ?? "",
+          note: update.artifacts.export?.note ?? "",
+        },
+      });
+      onSetWorkflowArtifacts(update);
+    } catch {
+      return;
+    }
+  };
   const buildReviewPackage = () => ({
     schema: "arcreel.local_manual_review_package.v1",
     exported_at: new Date().toISOString(),
@@ -241,6 +346,7 @@ function LocalWorkflowOverview({
     seedance_prompt: seedancePrompt,
     content: state.content,
     local_workflow_reviews: workflow,
+    local_workflow_artifacts: buildCurrentArtifacts(),
     rework: rework
       ? {
           gate: rework.gate,
@@ -384,7 +490,7 @@ function LocalWorkflowOverview({
         </div>
       </div>
       {promptImportOpen ? (
-        <div className="mb-2 rounded-[8px] border border-hairline bg-bg/30 px-2.5 py-2">
+        <div className="mb-2 grid gap-2 rounded-[8px] border border-hairline bg-bg/30 px-2.5 py-2">
           <label className="mb-1 block text-[11px] font-medium text-text-3">{t("local_workflow_prompt_label")}</label>
           <textarea
             aria-label={t("local_workflow_prompt_label")}
@@ -393,6 +499,56 @@ function LocalWorkflowOverview({
             placeholder={t("local_workflow_prompt_placeholder")}
             className="min-h-20 w-full rounded border border-hairline bg-bg/50 px-2 py-1 text-[12px] text-text-2 outline-none focus:border-accent"
           />
+          <div className="text-[11px] font-medium text-text-3">{t("local_workflow_artifact_title")}</div>
+          <div className="grid gap-2 lg:grid-cols-3">
+            {WORKFLOW_REVIEW_GATES.map((gate) => (
+              <div key={gate} className="grid gap-1.5 rounded border border-hairline bg-bg/30 px-2 py-2">
+                <div className="text-[11px] font-medium text-text-3">{t(`local_workflow_artifact_${gate}`)}</div>
+                <input
+                  aria-label={t(`local_workflow_artifact_${gate}_path_label`)}
+                  value={artifactRecords[gate].path}
+                  onChange={(event) =>
+                    setArtifactRecords((prev) => ({
+                      ...prev,
+                      [gate]: { ...prev[gate], path: event.target.value },
+                    }))
+                  }
+                  placeholder={t("local_workflow_artifact_path_placeholder")}
+                  className="rounded border border-hairline bg-bg/50 px-2 py-1 text-[12px] text-text-2 outline-none focus:border-accent"
+                />
+                <input
+                  aria-label={t(`local_workflow_artifact_${gate}_note_label`)}
+                  value={artifactRecords[gate].note}
+                  onChange={(event) =>
+                    setArtifactRecords((prev) => ({
+                      ...prev,
+                      [gate]: { ...prev[gate], note: event.target.value },
+                    }))
+                  }
+                  placeholder={t("local_workflow_artifact_note_placeholder")}
+                  className="rounded border border-hairline bg-bg/50 px-2 py-1 text-[12px] text-text-2 outline-none focus:border-accent"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={saveWorkflowArtifacts}>
+              {t("local_workflow_save_artifacts")}
+            </button>
+          </div>
+          <label className="text-[11px] font-medium text-text-3">{t("local_workflow_package_json_label")}</label>
+          <textarea
+            aria-label={t("local_workflow_package_json_label")}
+            value={packageImportJson}
+            onChange={(event) => setPackageImportJson(event.target.value)}
+            placeholder={t("local_workflow_package_json_placeholder")}
+            className="min-h-16 w-full rounded border border-hairline bg-bg/50 px-2 py-1 font-mono text-[11px] text-text-2 outline-none focus:border-accent"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={applyImportedPackage}>
+              {t("local_workflow_apply_package")}
+            </button>
+          </div>
         </div>
       ) : null}
       <ol className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
@@ -712,6 +868,21 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     [projectName, episode, adopt, pushToast, t],
   );
 
+  const handleSetWorkflowArtifacts = useCallback(
+    async (update: LocalWorkflowArtifactsUpdate) => {
+      setWorkflowSaving(true);
+      try {
+        adopt(await API.setScriptReviewWorkflowArtifacts(projectName, episode, update));
+        pushToast(t("dashboard:local_workflow_artifacts_saved"), "success");
+      } catch (err) {
+        pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
+      } finally {
+        setWorkflowSaving(false);
+      }
+    },
+    [projectName, episode, adopt, pushToast, t],
+  );
+
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {
       if (!prev || !("scenes" in prev)) return prev;
@@ -813,6 +984,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           state={state}
           busy={busy}
           onSetWorkflowGate={voidPromise(handleSetWorkflowGate)}
+          onSetWorkflowArtifacts={voidPromise(handleSetWorkflowArtifacts)}
         />
       ) : null}
 

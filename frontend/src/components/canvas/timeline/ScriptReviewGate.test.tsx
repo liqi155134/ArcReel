@@ -50,6 +50,17 @@ function clearWorkflowState(): Pick<ScriptReviewState, "local_workflow_reviews">
   };
 }
 
+function clearArtifactState(): Pick<ScriptReviewState, "local_workflow_artifacts"> {
+  return {
+    local_workflow_artifacts: {
+      seedance_prompt: "",
+      storyboard: { path: "", url: "", note: "", updated_at: null },
+      video: { path: "", url: "", note: "", updated_at: null },
+      export: { path: "", url: "", note: "", updated_at: null },
+    },
+  };
+}
+
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
@@ -59,6 +70,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     confirmed_at: null,
     ...clearQaState(),
     ...clearWorkflowState(),
+    ...clearArtifactState(),
     content: {
       title: "第一集",
       scenes: [
@@ -91,6 +103,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     confirmed_at: null,
     ...clearQaState(),
     ...clearWorkflowState(),
+    ...clearArtifactState(),
     content: {
       segments: [
         {
@@ -451,14 +464,107 @@ describe("ScriptReviewGate", () => {
       seedance_prompt: string;
       content: { scenes: Array<{ scene_id: string }> };
       local_workflow_reviews: ScriptReviewState["local_workflow_reviews"];
+      local_workflow_artifacts: ScriptReviewState["local_workflow_artifacts"];
     };
     expect(exported.schema).toBe("arcreel.local_manual_review_package.v1");
     expect(exported.project_name).toBe("p");
     expect(exported.episode).toBe(1);
     expect(exported.seedance_prompt).toBe("E1S01: 阿离雨夜屋檐下近景，电影感。");
+    expect(exported.local_workflow_artifacts.seedance_prompt).toBe("E1S01: 阿离雨夜屋檐下近景，电影感。");
     expect(exported.content.scenes[0].scene_id).toBe("E1S01");
     expect(exported.local_workflow_reviews.storyboard_decision).toBe("pending");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:manual-review-package");
+  });
+
+  it("saves Seedance prompt and manual artifact ledger entries", async () => {
+    const confirmed = dramaState({ status: "confirmed", confirmed_at: "2026-07-03T00:00:00Z" });
+    const saved = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_artifacts: {
+        ...clearArtifactState().local_workflow_artifacts,
+        seedance_prompt: "E1S01: 阿离雨夜屋檐下近景，电影感。",
+        storyboard: {
+          path: "storyboards/e1s01.png",
+          url: "",
+          note: "人工筛选第 2 张。",
+          updated_at: "2026-07-03T00:05:00Z",
+        },
+      },
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmed);
+    const setArtifacts = vi.spyOn(API, "setScriptReviewWorkflowArtifacts").mockResolvedValue(saved);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("导入 Prompt")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("导入 Prompt"));
+    fireEvent.change(screen.getByLabelText("Seedance Prompt"), {
+      target: { value: "E1S01: 阿离雨夜屋檐下近景，电影感。" },
+    });
+    fireEvent.change(screen.getByLabelText("分镜图文件/链接"), {
+      target: { value: "storyboards/e1s01.png" },
+    });
+    fireEvent.change(screen.getByLabelText("分镜图备注"), {
+      target: { value: "人工筛选第 2 张。" },
+    });
+    fireEvent.click(screen.getByText("保存生产台账"));
+
+    await waitFor(() =>
+      expect(setArtifacts).toHaveBeenCalledWith("p", 1, {
+        seedance_prompt: "E1S01: 阿离雨夜屋檐下近景，电影感。",
+        artifacts: {
+          storyboard: { path: "storyboards/e1s01.png", url: "", note: "人工筛选第 2 张。" },
+          video: { path: "", url: "", note: "" },
+          export: { path: "", url: "", note: "" },
+        },
+      }),
+    );
+    await waitFor(() => expect(screen.getByDisplayValue("storyboards/e1s01.png")).toBeInTheDocument());
+  });
+
+  it("imports pasted manual review package JSON into the artifact ledger", async () => {
+    const imported = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_artifacts: {
+        ...clearArtifactState().local_workflow_artifacts,
+        seedance_prompt: "E1S01: 导入后的 Seedance prompt。",
+        storyboard: {
+          path: "storyboards/imported.png",
+          url: "",
+          note: "从审核包恢复。",
+          updated_at: "2026-07-03T00:06:00Z",
+        },
+      },
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ status: "confirmed" }));
+    const setArtifacts = vi.spyOn(API, "setScriptReviewWorkflowArtifacts").mockResolvedValue(imported);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("导入 Prompt")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("导入 Prompt"));
+    fireEvent.change(screen.getByLabelText("审核包 JSON"), {
+      target: {
+        value: JSON.stringify({
+          schema: "arcreel.local_manual_review_package.v1",
+          local_workflow_artifacts: imported.local_workflow_artifacts,
+        }),
+      },
+    });
+    fireEvent.click(screen.getByText("应用审核包"));
+
+    await waitFor(() =>
+      expect(setArtifacts).toHaveBeenCalledWith("p", 1, {
+        seedance_prompt: "E1S01: 导入后的 Seedance prompt。",
+        artifacts: {
+          storyboard: { path: "storyboards/imported.png", url: "", note: "从审核包恢复。" },
+          video: { path: "", url: "", note: "" },
+          export: { path: "", url: "", note: "" },
+        },
+      }),
+    );
   });
 
   it("copies a rework brief with blocker, failed checklist, and imported prompt", async () => {

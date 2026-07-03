@@ -52,6 +52,7 @@ import type {
   NarrationStep1Draft,
   LocalWorkflowGate,
   LocalWorkflowReviewUpdate,
+  LocalWorkflowArtifactsUpdate,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -812,6 +813,21 @@ class API {
       {
         method: "PUT",
         body: JSON.stringify({ reviewed, ...(review ?? {}) }),
+      }
+    );
+  }
+
+  /** Persist manually supplied prompt/artifact paths for local short-drama production. */
+  static async setScriptReviewWorkflowArtifacts(
+    projectName: string,
+    episode: number,
+    update: LocalWorkflowArtifactsUpdate
+  ): Promise<ScriptReviewState> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/workflow-artifacts`,
+      {
+        method: "PUT",
+        body: JSON.stringify(update),
       }
     );
   }

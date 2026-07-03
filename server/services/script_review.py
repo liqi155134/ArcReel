@@ -32,6 +32,7 @@ _WORKFLOW_CHECKLISTS: dict[WorkflowGate, tuple[str, ...]] = {
     "export": ("subtitles_audio", "aspect_cover", "file_naming", "final_playback"),
 }
 _WORKFLOW_REVIEW_FIELD = "local_workflow_reviews"
+_WORKFLOW_ARTIFACT_FIELD = "local_workflow_artifacts"
 
 #: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
@@ -91,6 +92,7 @@ class ScriptReviewService:
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,
             "local_workflow_reviews": _workflow_review_summary(project, episode),
+            "local_workflow_artifacts": _workflow_artifact_summary(project, episode),
             **qa,
         }
 
@@ -132,6 +134,41 @@ class ScriptReviewService:
                 "note": normalized_note,
                 "checklist": normalized_checklist,
             }
+
+        self.pm.update_project(project_name, _mutate)
+        return self.get_state(project_name, episode)
+
+    def set_workflow_artifacts(
+        self,
+        project_name: str,
+        episode: int,
+        seedance_prompt: str | None = None,
+        artifacts: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Persist the manual local-production artifact ledger for this episode.
+
+        The ledger records operator-supplied paths/links/notes only. It does not launch providers, automate
+        downstream generation, or mark review gates complete.
+        """
+        normalized_prompt = _normalize_workflow_artifact_text(seedance_prompt, limit=20000)
+        normalized_artifacts = _normalize_workflow_artifacts_input(artifacts)
+        updated_at = datetime.now(UTC).isoformat()
+
+        def _mutate(project: dict[str, Any]) -> None:
+            episode_meta = script_review.find_episode(project, episode)
+            if episode_meta is None:
+                raise ScriptReviewError("episode_not_found")
+            ledger = episode_meta.setdefault(_WORKFLOW_ARTIFACT_FIELD, {})
+            if not isinstance(ledger, dict):
+                ledger = {}
+                episode_meta[_WORKFLOW_ARTIFACT_FIELD] = ledger
+            ledger["seedance_prompt"] = normalized_prompt
+            for gate, record in normalized_artifacts.items():
+                has_content = any(record[field] for field in ("path", "url", "note"))
+                ledger[gate] = {
+                    **record,
+                    "updated_at": updated_at if has_content else None,
+                }
 
         self.pm.update_project(project_name, _mutate)
         return self.get_state(project_name, episode)
@@ -229,6 +266,57 @@ def _workflow_review_summary(project: dict[str, Any], episode: int) -> dict[str,
         summary[f"{gate}_note"] = note
         summary[f"{gate}_checklist"] = _normalize_workflow_checklist(gate, checklist)
     return summary
+
+
+def _workflow_artifact_summary(project: dict[str, Any], episode: int) -> dict[str, Any]:
+    episode_meta = script_review.find_episode(project, episode) or {}
+    ledger = episode_meta.get(_WORKFLOW_ARTIFACT_FIELD)
+    if not isinstance(ledger, dict):
+        ledger = {}
+    summary: dict[str, Any] = {
+        "seedance_prompt": _normalize_workflow_artifact_text(ledger.get("seedance_prompt"), limit=20000),
+    }
+    for gate in _WORKFLOW_GATES:
+        record = ledger.get(gate)
+        summary[gate] = _workflow_artifact_record_from_storage(record)
+    return summary
+
+
+def _workflow_artifact_record_from_storage(record: object) -> dict[str, Any]:
+    if not isinstance(record, dict):
+        record = {}
+    updated_at = record.get("updated_at") if isinstance(record.get("updated_at"), str) else None
+    return {
+        "path": _normalize_workflow_artifact_text(record.get("path"), limit=2000),
+        "url": _normalize_workflow_artifact_text(record.get("url"), limit=2000),
+        "note": _normalize_workflow_artifact_text(record.get("note"), limit=1000),
+        "updated_at": updated_at,
+    }
+
+
+def _normalize_workflow_artifacts_input(artifacts: object | None) -> dict[WorkflowGate, dict[str, str]]:
+    if artifacts is None:
+        return {}
+    if not isinstance(artifacts, dict):
+        raise ScriptReviewError("invalid_workflow_artifacts", "workflow artifacts must be an object")
+    normalized: dict[WorkflowGate, dict[str, str]] = {}
+    for gate, record in artifacts.items():
+        if gate not in _WORKFLOW_GATES:
+            raise ScriptReviewError("invalid_workflow_artifacts", f"unsupported workflow artifact gate: {gate}")
+        if not isinstance(record, dict):
+            raise ScriptReviewError("invalid_workflow_artifacts", f"workflow artifact record for {gate} must be an object")
+        normalized[cast(WorkflowGate, gate)] = {
+            "path": _normalize_workflow_artifact_text(record.get("path"), limit=2000),
+            "url": _normalize_workflow_artifact_text(record.get("url"), limit=2000),
+            "note": _normalize_workflow_artifact_text(record.get("note"), limit=1000),
+        }
+    return normalized
+
+
+def _normalize_workflow_artifact_text(value: object | None, *, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:limit]
 
 
 def _normalize_workflow_decision(reviewed: bool, decision: str | None) -> WorkflowDecision:

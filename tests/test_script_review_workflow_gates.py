@@ -104,6 +104,60 @@ def test_get_state_defaults_local_workflow_reviews_to_false(tmp_path: Path) -> N
     }
 
 
+def test_get_state_defaults_local_workflow_artifacts(tmp_path: Path) -> None:
+    pm = _make_project(tmp_path)
+
+    state = ScriptReviewService(pm).get_state("demo", 1)
+
+    assert state["local_workflow_artifacts"] == {
+        "seedance_prompt": "",
+        "storyboard": {"path": "", "url": "", "note": "", "updated_at": None},
+        "video": {"path": "", "url": "", "note": "", "updated_at": None},
+        "export": {"path": "", "url": "", "note": "", "updated_at": None},
+    }
+
+
+def test_set_workflow_artifacts_persists_prompt_and_manual_artifacts(tmp_path: Path) -> None:
+    pm = _make_project(tmp_path)
+    svc = ScriptReviewService(pm)
+
+    state = svc.set_workflow_artifacts(
+        "demo",
+        1,
+        seedance_prompt="E1S01: 阿离雨夜屋檐下近景，电影感。",
+        artifacts={
+            "storyboard": {
+                "path": "storyboards/e1s01.png",
+                "url": "file:///shots/e1s01.png",
+                "note": "分镜图已人工筛选。",
+            },
+            "video": {
+                "path": "videos/e1s01.mp4",
+                "url": "file:///videos/e1s01.mp4",
+                "note": "Seedance 手工导出。",
+            },
+            "export": {
+                "path": "exports/e1-final.mp4",
+                "url": "",
+                "note": "剪映成片。",
+            },
+        },
+    )
+
+    artifacts = state["local_workflow_artifacts"]
+    assert artifacts["seedance_prompt"] == "E1S01: 阿离雨夜屋檐下近景，电影感。"
+    assert artifacts["storyboard"]["path"] == "storyboards/e1s01.png"
+    assert artifacts["storyboard"]["url"] == "file:///shots/e1s01.png"
+    assert artifacts["storyboard"]["note"] == "分镜图已人工筛选。"
+    assert isinstance(artifacts["storyboard"]["updated_at"], str)
+    assert artifacts["video"]["path"] == "videos/e1s01.mp4"
+    assert artifacts["export"]["path"] == "exports/e1-final.mp4"
+
+    episode_meta = pm.load_project("demo")["episodes"][0]
+    assert episode_meta["local_workflow_artifacts"]["seedance_prompt"] == "E1S01: 阿离雨夜屋檐下近景，电影感。"
+    assert episode_meta["local_workflow_artifacts"]["storyboard"]["path"] == "storyboards/e1s01.png"
+
+
 def test_set_workflow_review_persists_and_can_unset_storyboard_gate(tmp_path: Path) -> None:
     pm = _make_project(tmp_path)
     svc = ScriptReviewService(pm)
@@ -215,6 +269,30 @@ def test_router_updates_local_workflow_gate(tmp_path: Path, monkeypatch) -> None
             "prompt_quality": True,
         }
         assert pm.load_project("demo")["episodes"][0]["local_workflow_reviews"]["storyboard"]["reviewed"] is False
+
+
+def test_router_updates_local_workflow_artifacts(tmp_path: Path, monkeypatch) -> None:
+    client, pm = _client(monkeypatch, tmp_path)
+    with client:
+        resp = client.put(
+            "/api/v1/projects/demo/episodes/1/script-review/workflow-artifacts",
+            json={
+                "seedance_prompt": "E1S01: 雨夜屋檐下的近景。",
+                "artifacts": {
+                    "storyboard": {
+                        "path": "storyboards/e1s01.png",
+                        "url": "file:///shots/e1s01.png",
+                        "note": "人工确认分镜。",
+                    }
+                },
+            },
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["local_workflow_artifacts"]["seedance_prompt"] == "E1S01: 雨夜屋檐下的近景。"
+        assert body["local_workflow_artifacts"]["storyboard"]["path"] == "storyboards/e1s01.png"
+        assert pm.load_project("demo")["episodes"][0]["local_workflow_artifacts"]["storyboard"]["note"] == "人工确认分镜。"
 
 
 def test_router_rejects_unknown_local_workflow_gate(tmp_path: Path, monkeypatch) -> None:

@@ -28,6 +28,18 @@ class WorkflowGateReviewRequest(BaseModel):
     note: str | None = None
     checklist: dict[str, bool] | None = None
 
+
+class WorkflowArtifactRecordRequest(BaseModel):
+    path: str | None = None
+    url: str | None = None
+    note: str | None = None
+
+
+class WorkflowArtifactsRequest(BaseModel):
+    seedance_prompt: str | None = None
+    artifacts: dict[str, WorkflowArtifactRecordRequest] | None = None
+
+
 pm = ProjectManager(app_data_dir())
 
 
@@ -45,6 +57,7 @@ _ERROR_STATUS: dict[str, int] = {
     "invalid_workflow_gate": 422,
     "invalid_workflow_decision": 422,
     "invalid_workflow_checklist": 422,
+    "invalid_workflow_artifacts": 422,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
@@ -57,7 +70,12 @@ def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) ->
     status = _ERROR_STATUS.get(exc.code, 400)
     if exc.code == "qa_gate_blocked" and exc.payload:
         raise HTTPException(status_code=status, detail=exc.payload)
-    if exc.code in {"invalid_workflow_gate", "invalid_workflow_decision", "invalid_workflow_checklist"}:
+    if exc.code in {
+        "invalid_workflow_gate",
+        "invalid_workflow_decision",
+        "invalid_workflow_checklist",
+        "invalid_workflow_artifacts",
+    }:
         raise HTTPException(status_code=status, detail=exc.message or exc.code)
     if exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
@@ -131,6 +149,35 @@ async def update_script_review_workflow_gate(
             req.decision,
             req.note,
             req.checklist,
+        )
+    except ScriptReviewError as exc:
+        _raise_review_error(exc, episode, _t)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+
+
+@router.put("/projects/{project_name}/episodes/{episode}/script-review/workflow-artifacts")
+async def update_script_review_workflow_artifacts(
+    project_name: str,
+    episode: int,
+    req: WorkflowArtifactsRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """Persist manually supplied prompt/artifact paths for local short-drama production."""
+    try:
+        service = ScriptReviewService(get_project_manager())
+        artifacts = (
+            {gate: record.model_dump(exclude_none=True) for gate, record in req.artifacts.items()}
+            if req.artifacts is not None
+            else None
+        )
+        return await asyncio.to_thread(
+            service.set_workflow_artifacts,
+            project_name,
+            episode,
+            req.seedance_prompt,
+            artifacts,
         )
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
