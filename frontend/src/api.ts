@@ -52,6 +52,12 @@ import type {
   NarrationStep1Draft,
   ClaudeDraftArtifact,
   ClaudeDraftRequest,
+  AppendProductionRevisionResponse,
+  ProductionContextPayload,
+  ProductionContextResponse,
+  ProductionContextSnippetResponse,
+  ProductionRevisionMemory,
+  SaveProductionContextResponse,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -877,6 +883,57 @@ class API {
     const encodedArtifactId = artifactId.split("/").map(encodeURIComponent).join("/");
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/claude-drafts/${encodedArtifactId}`
+    );
+  }
+
+  /** 读取本地 Production Context / Project Bible sidecar；缺文件时后端返回默认值且不写盘。 */
+  static async getProductionContext(
+    projectName: string
+  ): Promise<ProductionContextResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/production-context`
+    );
+  }
+
+  /** 保存人工维护的 Production Context；只写 sidecar，不触发 prompt/provider/media。 */
+  static async saveProductionContext(
+    projectName: string,
+    payload: ProductionContextPayload
+  ): Promise<SaveProductionContextResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/production-context`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /** 追加一条人工复盘/重试记忆；只写 sidecar。 */
+  static async appendProductionRevision(
+    projectName: string,
+    payload: ProductionRevisionMemory
+  ): Promise<AppendProductionRevisionResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/production-context/revisions`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /** 生成可复制的手动 opt-in 上下文片段；不会自动注入任何生成提示词。 */
+  static async buildProductionContextInjectionSnippet(
+    projectName: string,
+    latestRevisions = 3
+  ): Promise<ProductionContextSnippetResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/production-context/injection-snippet`,
+      {
+        method: "POST",
+        body: JSON.stringify({ latest_revisions: latestRevisions }),
+      }
     );
   }
 

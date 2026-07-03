@@ -548,6 +548,41 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/claude-drafts?episode=1");
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/claude-drafts/1/draft.json");
     });
+
+    it("covers production context manual sidecar endpoints", async () => {
+      const requestSpy = vi.spyOn(API, "request").mockResolvedValue({ success: true } as never);
+
+      await API.getProductionContext("a b");
+      await API.saveProductionContext("a b", {
+        project_bible: { logline: "狐妖用红伞改变命运", tone: "克制、悬疑" },
+      });
+      await API.appendProductionRevision("a b", {
+        failure_category: "角色漂移",
+        human_critique: "发色错了",
+        next_fix_strategy: "强调银发",
+      });
+      await API.buildProductionContextInjectionSnippet("a b", 2);
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/production-context");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/production-context", {
+        method: "PUT",
+        body: JSON.stringify({
+          project_bible: { logline: "狐妖用红伞改变命运", tone: "克制、悬疑" },
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/production-context/revisions", {
+        method: "POST",
+        body: JSON.stringify({
+          failure_category: "角色漂移",
+          human_critique: "发色错了",
+          next_fix_strategy: "强调银发",
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/production-context/injection-snippet", {
+        method: "POST",
+        body: JSON.stringify({ latest_revisions: 2 }),
+      });
+    });
   });
 
   describe("fetch-based wrappers", () => {

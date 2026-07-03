@@ -52,6 +52,7 @@ from server.routers import (
     files,
     generate,
     grids,
+    production_context,
     products,
     project_events,
     projects,
@@ -544,6 +545,7 @@ app.include_router(characters.router, prefix="/api/v1", tags=["角色管理"])
 app.include_router(scenes.router, prefix="/api/v1", tags=["场景管理"])
 app.include_router(props.router, prefix="/api/v1", tags=["道具管理"])
 app.include_router(products.router, prefix="/api/v1", tags=["产品管理"])
+app.include_router(production_context.router, prefix="/api/v1", tags=["Production Context"])
 app.include_router(files.router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(generate.router, prefix="/api/v1", tags=["生成"])
 app.include_router(script_review.router, prefix="/api/v1", tags=["剧本审核 gate"])
