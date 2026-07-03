@@ -75,7 +75,7 @@ export interface LoginResponse {
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
-  detail: string | { msg?: string }[];
+  detail: string | { msg?: string }[] | { message?: string };
 }
 
 /**
@@ -348,6 +348,13 @@ class API {
         message = error.detail;
       } else if (Array.isArray(error.detail) && error.detail.length > 0) {
         message = error.detail.map((e) => (typeof e === "string" ? e : e?.msg)).filter(Boolean).join("; ") || message;
+      } else if (
+        error.detail
+        && typeof error.detail === "object"
+        && !Array.isArray(error.detail)
+        && typeof error.detail.message === "string"
+      ) {
+        message = error.detail.message;
       }
       throw new Error(message);
     }
@@ -793,6 +800,45 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/confirm`,
       { method: "POST" }
+    );
+  }
+
+  /** 保存人工 storyboard/video/export workflow gate 决策；只写本地审核元数据，不触发生成。 */
+  static async updateScriptReviewWorkflowGate(
+    projectName: string,
+    episode: number,
+    gate: "storyboard" | "video" | "export",
+    payload: {
+      reviewed: boolean;
+      decision?: "pending" | "approved" | "needs_changes" | "skipped";
+      note?: string;
+      checklist?: Record<string, boolean>;
+    }
+  ): Promise<ScriptReviewState> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/workflow-gates/${encodeURIComponent(gate)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /** 保存人工 artifact ledger 引用；只记录 path/url/note，不触发 provider 或媒体导出。 */
+  static async updateScriptReviewWorkflowArtifacts(
+    projectName: string,
+    episode: number,
+    payload: {
+      seedance_prompt?: string | null;
+      artifacts?: Partial<Record<"storyboard" | "video" | "export", { path?: string | null; url?: string | null; note?: string | null }>>;
+    }
+  ): Promise<ScriptReviewState> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/workflow-artifacts`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }
     );
   }
 

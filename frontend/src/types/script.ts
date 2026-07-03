@@ -136,6 +136,61 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
+export type ScriptReviewQaSeverity = "info" | "warn" | "block";
+export type ScriptReviewQaGateStatus = "clear" | "warning" | "blocked";
+
+export interface ScriptReviewQaFinding {
+  code: string;
+  severity: ScriptReviewQaSeverity;
+  message: string;
+  path?: string;
+  evidence?: string;
+  recommendation?: string;
+}
+
+export interface ScriptReviewQaSummary {
+  info_count: number;
+  warn_count: number;
+  block_count: number;
+  gate_status: ScriptReviewQaGateStatus;
+  top_codes: string[];
+}
+
+export type LocalWorkflowGate = "storyboard" | "video" | "export";
+export type LocalWorkflowDecision = "pending" | "approved" | "needs_changes" | "skipped";
+
+export interface LocalWorkflowReviews {
+  storyboard_reviewed: boolean;
+  storyboard_reviewed_at: string | null;
+  storyboard_decision: LocalWorkflowDecision;
+  storyboard_note: string;
+  storyboard_checklist: Record<string, boolean>;
+  video_reviewed: boolean;
+  video_reviewed_at: string | null;
+  video_decision: LocalWorkflowDecision;
+  video_note: string;
+  video_checklist: Record<string, boolean>;
+  export_reviewed: boolean;
+  export_reviewed_at: string | null;
+  export_decision: LocalWorkflowDecision;
+  export_note: string;
+  export_checklist: Record<string, boolean>;
+}
+
+export interface LocalWorkflowArtifactRecord {
+  path: string;
+  url: string;
+  note: string;
+  updated_at: string | null;
+}
+
+export interface LocalWorkflowArtifacts {
+  seedance_prompt: string;
+  storyboard: LocalWorkflowArtifactRecord;
+  video: LocalWorkflowArtifactRecord;
+  export: LocalWorkflowArtifactRecord;
+}
+
 /** step1→step2 审核 gate 状态（后端 server/services/script_review.py 的 get_state 响应）。 */
 export interface ScriptReviewState {
   episode: number;
@@ -144,6 +199,11 @@ export interface ScriptReviewState {
   fingerprint: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationStep1Draft | null;
+  qa_findings: ScriptReviewQaFinding[];
+  qa_summary: ScriptReviewQaSummary;
+  qa_gate_status: ScriptReviewQaGateStatus;
+  local_workflow_reviews: LocalWorkflowReviews;
+  local_workflow_artifacts: LocalWorkflowArtifacts;
 }
 
 export interface Composition {

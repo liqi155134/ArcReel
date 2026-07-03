@@ -1081,6 +1081,13 @@ export default {
   'review_confirm_failed': 'Could not confirm, please try again',
   'review_load_failed': "Couldn't load preprocessing content",
   'review_retry': 'Retry',
+  'review_qa_status_clear': 'Short-drama QA passed',
+  'review_qa_panel_title': 'Short-drama QA',
+  'review_qa_block_count': 'Blocks {{count}}',
+  'review_qa_warn_count': 'Warnings {{count}}',
+  'review_qa_info_count': 'Info {{count}}',
+  'review_qa_blocked_hint': 'Blocking findings must be fixed before confirmation.',
+  'review_qa_warning_hint': 'Only warnings/info remain; a human reviewer may continue.',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

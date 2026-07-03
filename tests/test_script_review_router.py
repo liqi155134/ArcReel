@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import lib.script_review as script_review
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -75,8 +76,6 @@ class TestScriptReviewRouter:
             assert body["content"]["scenes"][0]["utterances"][1]["speaker"] == "阿离"
 
             # 确认前 step2 被阻塞
-            from lib import script_review
-
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
             # 确认 → confirmed，step2 放行
@@ -117,6 +116,26 @@ class TestScriptReviewRouter:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 409
+
+    def test_confirm_with_blocking_qa_returns_structured_409(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            content = _drama_step1()
+            content["scenes"][0]["props"] = ["玉佩"]
+            _write_step1(pm, content)
+
+            confirmed = client.post(f"{base}/confirm")
+
+            assert confirmed.status_code == 409
+            detail = confirmed.json()["detail"]
+            assert detail["code"] == "qa_gate_blocked"
+            assert detail["qa_gate_status"] == "blocked"
+            assert detail["qa_summary"]["block_count"] == 1
+            finding_codes = {finding["code"] for finding in detail["qa_findings"]}
+            assert "missing_prop_reference" in finding_codes
+            assert "weak_opening_hook" in finding_codes
+            assert "weak_cliffhanger" in finding_codes
 
     def test_get_unregistered_episode_404(self, tmp_path, monkeypatch):
         """未在 project.json 登记的分集 → GET 返回 404，而非误报 no_step1 的 200。"""

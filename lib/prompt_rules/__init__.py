@@ -18,4 +18,6 @@ def is_v2_enabled() -> bool:
     return os.environ.get("ARCREEL_PROMPT_RULES_V2", "on").strip().lower() != "off"
 
 
-__all__ = ["is_v2_enabled"]
+from lib.prompt_rules.short_drama_standards import render_short_drama_standards_section
+
+__all__ = ["is_v2_enabled", "render_short_drama_standards_section"]

@@ -7,6 +7,7 @@ import type {
   DramaSceneContent,
   NarrationStep1Draft,
   NarrationStep1Segment,
+  ScriptReviewQaSeverity,
   ScriptReviewState,
   Utterance,
 } from "@/types";
@@ -52,6 +53,74 @@ function MetaChips({ items }: { items: string[] }) {
         </span>
       ))}
     </div>
+  );
+}
+
+const QA_SEVERITY_CLASS: Record<ScriptReviewQaSeverity, string> = {
+  block: "border-red-500/40 bg-red-500/10 text-red-200",
+  warn: "border-amber-500/40 bg-amber-500/10 text-amber-100",
+  info: "border-sky-500/40 bg-sky-500/10 text-sky-100",
+};
+
+function QaReviewPanel({ state }: { state: ScriptReviewState }) {
+  const { t } = useTranslation("dashboard");
+  if (state.qa_gate_status === "clear" && state.qa_findings.length === 0) {
+    return (
+      <section className="rounded-[10px] border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-2.5">
+        <div className="flex items-center gap-2 text-[12px] text-emerald-200">
+          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+          {t("review_qa_status_clear")}
+        </div>
+      </section>
+    );
+  }
+
+  const blocked = state.qa_gate_status === "blocked";
+  return (
+    <section
+      className={`rounded-[10px] border px-3.5 py-2.5 ${
+        blocked ? "border-red-500/35 bg-red-500/10" : "border-amber-500/35 bg-amber-500/10"
+      }`}
+      aria-label={t("review_qa_panel_title")}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[12px] font-medium text-text">
+          <AlertTriangle className={blocked ? "h-3.5 w-3.5 text-red-300" : "h-3.5 w-3.5 text-amber-300"} />
+          {t("review_qa_panel_title")}
+        </div>
+        <div className="flex flex-wrap gap-1.5 text-[10.5px]">
+          <span className="rounded border border-red-500/30 px-1.5 py-0.5 text-red-200">
+            {t("review_qa_block_count", { count: state.qa_summary.block_count })}
+          </span>
+          <span className="rounded border border-amber-500/30 px-1.5 py-0.5 text-amber-100">
+            {t("review_qa_warn_count", { count: state.qa_summary.warn_count })}
+          </span>
+          <span className="rounded border border-sky-500/30 px-1.5 py-0.5 text-sky-100">
+            {t("review_qa_info_count", { count: state.qa_summary.info_count })}
+          </span>
+        </div>
+      </div>
+      {blocked ? (
+        <p className="mb-2 text-[11px] text-red-100">{t("review_qa_blocked_hint")}</p>
+      ) : (
+        <p className="mb-2 text-[11px] text-amber-100">{t("review_qa_warning_hint")}</p>
+      )}
+      <ul className="flex flex-col gap-1.5">
+        {state.qa_findings.map((finding, index) => (
+          <li
+            key={`${finding.code}-${finding.path ?? index}`}
+            className={`rounded border px-2 py-1.5 text-[11px] ${QA_SEVERITY_CLASS[finding.severity]}`}
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[10.5px]">{finding.code}</span>
+              {finding.path ? <span className="font-mono text-[10px] opacity-75">{finding.path}</span> : null}
+            </div>
+            <p className="mt-1 text-text-2">{finding.message}</p>
+            {finding.evidence ? <p className="mt-0.5 font-mono text-[10px] opacity-80">{finding.evidence}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -258,7 +327,12 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+        const saved = await API.saveScriptReviewContent(projectName, episode, draft);
+        adopt(saved);
+        if (saved.qa_gate_status === "blocked") {
+          pushToast(t("dashboard:review_qa_blocked_hint"), "error");
+          return;
+        }
       }
       adopt(await API.confirmScriptReview(projectName, episode));
       pushToast(t("dashboard:review_confirmed"), "success");
@@ -313,7 +387,10 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     );
   }
 
+  const qaBlocked = state?.qa_gate_status === "blocked";
   const confirmed = status === "confirmed" && !dirty;
+  const unlocked = confirmed && !qaBlocked;
+  const confirmDisabled = busy || unlocked || (qaBlocked && !dirty);
 
   return (
     <div className="flex flex-col gap-3">
@@ -323,17 +400,17 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
         style={CARD_STYLE}
       >
         <div className="flex items-center gap-2">
-          {confirmed ? (
+          {unlocked ? (
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
           ) : (
             <Clock className="h-4 w-4 text-amber-400" />
           )}
           <div className="flex flex-col">
             <span className="text-[12.5px] font-medium text-text">
-              {confirmed ? t("dashboard:review_status_confirmed") : t("dashboard:review_status_pending")}
+              {unlocked ? t("dashboard:review_status_confirmed") : t("dashboard:review_status_pending")}
             </span>
             <span className="text-[11px] text-text-4">
-              {confirmed ? t("dashboard:review_confirmed_hint") : t("dashboard:review_pending_hint")}
+              {unlocked ? t("dashboard:review_confirmed_hint") : t("dashboard:review_pending_hint")}
             </span>
           </div>
         </div>
@@ -348,19 +425,21 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           <button
             type="button"
             onClick={voidPromise(handleConfirm)}
-            disabled={busy || confirmed}
+            disabled={confirmDisabled}
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >
-            {confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {unlocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             {confirming
               ? t("dashboard:review_confirming")
-              : confirmed
+              : unlocked
                 ? t("dashboard:review_confirmed_badge")
                 : t("dashboard:review_confirm_action")}
           </button>
         </div>
       </header>
+
+      {state ? <QaReviewPanel state={state} /> : null}
 
       {/* 结构化中间态卡片 */}
       <div className="flex flex-col gap-2.5">

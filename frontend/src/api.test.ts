@@ -120,6 +120,26 @@ describe("API", () => {
       await expect(API.request("/projects")).rejects.toThrow("boom");
     });
 
+    it("throws structured detail message for failed request", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          status: 409,
+          jsonData: {
+            detail: {
+              code: "qa_gate_blocked",
+              message: "deterministic QA findings must be fixed before confirming step1 review",
+            },
+          },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(API.request("/projects/demo/episodes/1/script-review/confirm")).rejects.toThrow(
+        "deterministic QA findings must be fixed before confirming step1 review",
+      );
+    });
+
     it("falls back to statusText when error response is not JSON", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
@@ -467,6 +487,16 @@ describe("API", () => {
       await API.getScriptReview("a b", 1);
       await API.saveScriptReviewContent("a b", 2, content);
       await API.confirmScriptReview("a b", 3);
+      await API.updateScriptReviewWorkflowGate("a b", 4, "storyboard", {
+        reviewed: false,
+        decision: "needs_changes",
+        note: "换首帧",
+        checklist: { character_consistency: true },
+      });
+      await API.updateScriptReviewWorkflowArtifacts("a b", 5, {
+        seedance_prompt: "E1S01 prompt",
+        artifacts: { storyboard: { path: "storyboards/e1s01.png", note: "人工导入" } },
+      });
 
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review");
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/2/script-review/content", {
@@ -475,6 +505,22 @@ describe("API", () => {
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/3/script-review/confirm", {
         method: "POST",
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/4/script-review/workflow-gates/storyboard", {
+        method: "PUT",
+        body: JSON.stringify({
+          reviewed: false,
+          decision: "needs_changes",
+          note: "换首帧",
+          checklist: { character_consistency: true },
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/5/script-review/workflow-artifacts", {
+        method: "PUT",
+        body: JSON.stringify({
+          seedance_prompt: "E1S01 prompt",
+          artifacts: { storyboard: { path: "storyboards/e1s01.png", note: "人工导入" } },
+        }),
       });
     });
   });

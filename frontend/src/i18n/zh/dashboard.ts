@@ -1082,6 +1082,13 @@ export default {
   'review_confirm_failed': '确认失败，请重试',
   'review_load_failed': '无法加载预处理内容',
   'review_retry': '重试',
+  'review_qa_status_clear': '短剧 QA 已通过',
+  'review_qa_panel_title': '短剧 QA 检查',
+  'review_qa_block_count': '阻断 {{count}}',
+  'review_qa_warn_count': '警告 {{count}}',
+  'review_qa_info_count': '提示 {{count}}',
+  'review_qa_blocked_hint': '存在阻断项，需先修正后才能确认放行。',
+  'review_qa_warning_hint': '仅有警告/提示，可由人工审核后继续。',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

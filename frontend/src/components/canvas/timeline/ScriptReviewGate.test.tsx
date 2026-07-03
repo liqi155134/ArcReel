@@ -5,6 +5,31 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type { ScriptReviewState } from "@/types";
 
+const localWorkflowReviews = {
+  storyboard_reviewed: false,
+  storyboard_reviewed_at: null,
+  storyboard_decision: "pending",
+  storyboard_note: "",
+  storyboard_checklist: {},
+  video_reviewed: false,
+  video_reviewed_at: null,
+  video_decision: "pending",
+  video_note: "",
+  video_checklist: {},
+  export_reviewed: false,
+  export_reviewed_at: null,
+  export_decision: "pending",
+  export_note: "",
+  export_checklist: {},
+} satisfies ScriptReviewState["local_workflow_reviews"];
+
+const localWorkflowArtifacts = {
+  seedance_prompt: "",
+  storyboard: { path: "", url: "", note: "", updated_at: null },
+  video: { path: "", url: "", note: "", updated_at: null },
+  export: { path: "", url: "", note: "", updated_at: null },
+} satisfies ScriptReviewState["local_workflow_artifacts"];
+
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
@@ -12,6 +37,15 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
+    qa_findings: [],
+    qa_summary: {
+      info_count: 0,
+      warn_count: 0,
+      block_count: 0,
+      gate_status: "clear",
+      top_codes: [],
+    },
+    qa_gate_status: "clear",
     content: {
       title: "第一集",
       scenes: [
@@ -31,6 +65,8 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
         },
       ],
     },
+    local_workflow_reviews: localWorkflowReviews,
+    local_workflow_artifacts: localWorkflowArtifacts,
     ...overrides,
   };
 }
@@ -42,6 +78,15 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
+    qa_findings: [],
+    qa_summary: {
+      info_count: 0,
+      warn_count: 0,
+      block_count: 0,
+      gate_status: "clear",
+      top_codes: [],
+    },
+    qa_gate_status: "clear",
     content: {
       segments: [
         {
@@ -55,6 +100,8 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
         },
       ],
     },
+    local_workflow_reviews: localWorkflowReviews,
+    local_workflow_artifacts: localWorkflowArtifacts,
     ...overrides,
   };
 }
@@ -70,7 +117,135 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
     expect(screen.getByText("E1S01")).toBeInTheDocument();
     expect(screen.getByText("待审核")).toBeInTheDocument();
+    expect(screen.getByText("短剧 QA 已通过")).toBeInTheDocument();
     expect(screen.getByText("确认并继续")).toBeInTheDocument();
+  });
+
+  it("renders blocking QA findings and prevents direct confirmation", async () => {
+    const confirm = vi.spyOn(API, "confirmScriptReview").mockResolvedValue(dramaState());
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({
+        qa_gate_status: "blocked",
+        qa_summary: {
+          info_count: 0,
+          warn_count: 0,
+          block_count: 1,
+          gate_status: "blocked",
+          top_codes: ["missing_prop_reference"],
+        },
+        qa_findings: [
+          {
+            code: "missing_prop_reference",
+            severity: "block",
+            message: "E1S01 引用了未登记的 props 资产。",
+            path: "$.scenes[0].props",
+            evidence: "玉佩",
+          },
+        ],
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("短剧 QA 检查")).toBeInTheDocument());
+    expect(screen.getByText("阻断 1")).toBeInTheDocument();
+    expect(screen.getByText("missing_prop_reference")).toBeInTheDocument();
+    expect(screen.getByText("存在阻断项，需先修正后才能确认放行。")).toBeInTheDocument();
+    expect(screen.getByText("确认并继续").closest("button")).toBeDisabled();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("does not show unlocked status for grandfathered confirmed content when QA blocks", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({
+        status: "confirmed",
+        confirmed_at: "2026-06-26T00:00:00Z",
+        qa_gate_status: "blocked",
+        qa_summary: {
+          info_count: 0,
+          warn_count: 0,
+          block_count: 1,
+          gate_status: "blocked",
+          top_codes: ["missing_prop_reference"],
+        },
+        qa_findings: [
+          {
+            code: "missing_prop_reference",
+            severity: "block",
+            message: "E1S01 引用了未登记的 props 资产。",
+          },
+        ],
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("短剧 QA 检查")).toBeInTheDocument());
+    expect(screen.getByText("待审核")).toBeInTheDocument();
+    expect(screen.getByText("审阅内容后确认，放行视觉生成。")).toBeInTheDocument();
+    expect(screen.queryByText("视觉生成已放行。再次编辑将重新进入审核。")).not.toBeInTheDocument();
+    expect(screen.getByText("确认并继续").closest("button")).toBeDisabled();
+  });
+
+  it("saves dirty blocked content but does not confirm when QA remains blocked", async () => {
+    const blockedState = dramaState({
+      qa_gate_status: "blocked",
+      qa_summary: {
+        info_count: 0,
+        warn_count: 0,
+        block_count: 1,
+        gate_status: "blocked",
+        top_codes: ["missing_prop_reference"],
+      },
+      qa_findings: [
+        {
+          code: "missing_prop_reference",
+          severity: "block",
+          message: "E1S01 引用了未登记的 props 资产。",
+        },
+      ],
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(blockedState);
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(blockedState);
+    const confirm = vi.spyOn(API, "confirmScriptReview").mockResolvedValue(dramaState({ status: "confirmed" }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "我已经补了道具引用。" } });
+    fireEvent.click(screen.getByText("确认并继续"));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("shows warning QA findings while keeping human confirmation available", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({
+        qa_gate_status: "warning",
+        qa_summary: {
+          info_count: 0,
+          warn_count: 1,
+          block_count: 0,
+          gate_status: "warning",
+          top_codes: ["weak_opening_hook"],
+        },
+        qa_findings: [
+          {
+            code: "weak_opening_hook",
+            severity: "warn",
+            message: "E1S01 开篇钩子信号偏弱。",
+          },
+        ],
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("短剧 QA 检查")).toBeInTheDocument());
+    expect(screen.getByText("警告 1")).toBeInTheDocument();
+    expect(screen.getByText("weak_opening_hook")).toBeInTheDocument();
+    expect(screen.getByText("确认并继续").closest("button")).not.toBeDisabled();
   });
 
   it("confirms and reflects the unlocked state", async () => {

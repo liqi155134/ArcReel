@@ -9,6 +9,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Body, HTTPException
+from pydantic import BaseModel
 
 from lib.app_data_dir import app_data_dir
 from lib.i18n import Translator
@@ -19,6 +20,25 @@ from server.services.script_review import ScriptReviewError, ScriptReviewService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class WorkflowGateReviewRequest(BaseModel):
+    reviewed: bool
+    decision: str | None = None
+    note: str | None = None
+    checklist: dict[str, bool] | None = None
+
+
+class WorkflowArtifactRecordRequest(BaseModel):
+    path: str | None = None
+    url: str | None = None
+    note: str | None = None
+
+
+class WorkflowArtifactsRequest(BaseModel):
+    seedance_prompt: str | None = None
+    artifacts: dict[str, WorkflowArtifactRecordRequest] | None = None
+
 
 pm = ProjectManager(app_data_dir())
 
@@ -33,6 +53,11 @@ _ERROR_STATUS: dict[str, int] = {
     "no_step1": 409,
     "invalid_content": 422,
     "episode_not_found": 404,
+    "qa_gate_blocked": 409,
+    "invalid_workflow_gate": 422,
+    "invalid_workflow_decision": 422,
+    "invalid_workflow_checklist": 422,
+    "invalid_workflow_artifacts": 422,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
@@ -43,7 +68,16 @@ _ERROR_I18N: dict[str, str] = {
 
 def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> None:
     status = _ERROR_STATUS.get(exc.code, 400)
-    if exc.code == "invalid_content":
+    if exc.code == "qa_gate_blocked" and exc.payload:
+        detail = exc.payload
+    elif exc.code in {
+        "invalid_workflow_gate",
+        "invalid_workflow_decision",
+        "invalid_workflow_checklist",
+        "invalid_workflow_artifacts",
+    }:
+        detail = exc.message or exc.code
+    elif exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
     elif exc.code == "episode_not_found":
         detail = _t("episode_not_found", episode=episode)
@@ -58,6 +92,63 @@ async def get_script_review(project_name: str, episode: int, _user: CurrentUser,
     try:
         service = ScriptReviewService(get_project_manager())
         return await asyncio.to_thread(service.get_state, project_name, episode)
+    except ScriptReviewError as exc:
+        _raise_review_error(exc, episode, _t)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+
+
+@router.put("/projects/{project_name}/episodes/{episode}/script-review/workflow-gates/{gate}")
+async def update_script_review_workflow_gate(
+    project_name: str,
+    episode: int,
+    gate: str,
+    req: WorkflowGateReviewRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """Persist an explicit local/manual production gate review flag for this episode."""
+    try:
+        service = ScriptReviewService(get_project_manager())
+        return await asyncio.to_thread(
+            service.set_workflow_review,
+            project_name,
+            episode,
+            gate,
+            req.reviewed,
+            req.decision,
+            req.note,
+            req.checklist,
+        )
+    except ScriptReviewError as exc:
+        _raise_review_error(exc, episode, _t)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+
+
+@router.put("/projects/{project_name}/episodes/{episode}/script-review/workflow-artifacts")
+async def update_script_review_workflow_artifacts(
+    project_name: str,
+    episode: int,
+    req: WorkflowArtifactsRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """Persist manually supplied prompt/artifact references for local short-drama production."""
+    try:
+        service = ScriptReviewService(get_project_manager())
+        artifacts = (
+            {gate: record.model_dump(exclude_none=True) for gate, record in req.artifacts.items()}
+            if req.artifacts is not None
+            else None
+        )
+        return await asyncio.to_thread(
+            service.set_workflow_artifacts,
+            project_name,
+            episode,
+            req.seedance_prompt,
+            artifacts,
+        )
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError:

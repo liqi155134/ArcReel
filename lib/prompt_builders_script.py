@@ -11,8 +11,20 @@
 
 from lib.prompt_rules import is_v2_enabled
 from lib.prompt_rules.episode_pacing import render_pacing_section
+from lib.prompt_rules.short_drama_standards import render_short_drama_standards_section
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
+
+
+def _render_prompt_rules_block(content_mode: str) -> str:
+    if not is_v2_enabled():
+        return ""
+    return (
+        render_pacing_section(content_mode)
+        + "\n\n"
+        + render_short_drama_standards_section(content_mode)
+        + "\n\n"
+    )
 
 
 def _format_names(items: dict) -> str:
@@ -253,7 +265,7 @@ def build_narration_prompt(
     透传，step2 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
     LLM 不重出这些字段——novel_text 由此不再经 step2 的 LLM 扩写漂移。
     """
-    pacing_block = (render_pacing_section("narration") + "\n\n") if is_v2_enabled() else ""
+    prompt_rules_block = _render_prompt_rules_block("narration")
     segments_block = _format_narration_step1_segments(step1_segments)
 
     return f"""# 角色与任务
@@ -265,7 +277,7 @@ def build_narration_prompt(
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
-{pacing_block}# 上下文
+{prompt_rules_block}# 上下文
 
 <overview>
 {project_overview.get("synopsis", "")}
@@ -399,7 +411,7 @@ def build_drama_prompt(
     LLM 输出按 scene_id 与 step1 内容对齐、由后端合并；不再按 source_kind 分支、不再识别口播、
     不再标注资产或时长——这些都是 step1 的职责。
     """
-    pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
+    prompt_rules_block = _render_prompt_rules_block("drama")
 
     return f"""# 角色与任务
 
@@ -410,7 +422,7 @@ def build_drama_prompt(
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 **对齐约束**：每个分镜产出一条视觉层，`scene_id` 必须与下方内容逐字一致、不增不减不改；不要输出口播 / 时长 / 资产等非视觉字段。
 
-{pacing_block}# 上下文
+{prompt_rules_block}# 上下文
 
 <overview>
 {project_overview.get("synopsis", "")}
@@ -557,14 +569,14 @@ def build_normalize_prompt(
         f"若口播估算已超过最长 {max_dur} 秒，取最长档即可（不裁台词、不硬塞），保存时会另有提示"
     )
     duration_rule = f"{base_duration_rule}。{duration_lower_bound_rule}"
-    pacing_block = (render_pacing_section("drama") + "\n\n") if is_v2_enabled() else ""
+    prompt_rules_block = _render_prompt_rules_block("drama")
 
     return f"""{task_line}
 
 **输出语言**：{language_rule}
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
-{pacing_block}## 项目信息
+{prompt_rules_block}## 项目信息
 
 <overview>
 {project_overview.get("synopsis", "")}

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -20,6 +20,19 @@ from lib import script_review
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
+from lib.short_drama_qa import empty_result, evaluate_short_drama_qa, has_blocking_findings
+
+WorkflowGate = Literal["storyboard", "video", "export"]
+WorkflowDecision = Literal["pending", "approved", "needs_changes", "skipped"]
+_WORKFLOW_GATES: tuple[WorkflowGate, ...] = ("storyboard", "video", "export")
+_WORKFLOW_DECISIONS: tuple[WorkflowDecision, ...] = ("pending", "approved", "needs_changes", "skipped")
+_WORKFLOW_CHECKLISTS: dict[WorkflowGate, tuple[str, ...]] = {
+    "storyboard": ("character_consistency", "scene_prop_consistency", "shot_count", "prompt_quality"),
+    "video": ("motion_continuity", "face_stability", "duration_rhythm", "first_last_frame"),
+    "export": ("subtitles_audio", "aspect_cover", "file_naming", "final_playback"),
+}
+_WORKFLOW_REVIEW_FIELD = "local_workflow_reviews"
+_WORKFLOW_ARTIFACT_FIELD = "local_workflow_artifacts"
 
 #: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
@@ -33,10 +46,11 @@ _CONTENT_MODEL: dict[str, type[BaseModel]] = {
 class ScriptReviewError(Exception):
     """gate 操作的领域错误。``code`` 供 router 映射 HTTP 状态与 i18n key；``message`` 为技术细节。"""
 
-    def __init__(self, code: str, message: str = ""):
+    def __init__(self, code: str, message: str = "", payload: dict[str, Any] | None = None):
         super().__init__(message or code)
         self.code = code
         self.message = message
+        self.payload = payload
 
 
 class ScriptReviewService:
@@ -68,14 +82,94 @@ class ScriptReviewService:
             # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
             self._require_episode(project, episode)
         fingerprint = script_review.content_fingerprint(path) if path is not None else None
+        content = _read_json(path) if path is not None else None
+        qa = evaluate_short_drama_qa(project, content) if path is not None else empty_result()
         return {
             "episode": episode,
             "content_mode": project.get("content_mode"),
             "status": script_review.review_status(project_path, project, episode),
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
-            "content": _read_json(path) if path is not None else None,
+            "content": content,
+            "local_workflow_reviews": _workflow_review_summary(project, episode),
+            "local_workflow_artifacts": _workflow_artifact_summary(project, episode),
+            **qa,
         }
+
+    def set_workflow_review(
+        self,
+        project_name: str,
+        episode: int,
+        gate: str,
+        reviewed: bool,
+        decision: str | None = None,
+        note: str | None = None,
+        checklist: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        """Persist one explicit human local-production review gate.
+
+        This metadata is local to ``project.json`` and does not enqueue storyboard/video/export work.
+        """
+        if gate not in _WORKFLOW_GATES:
+            raise ScriptReviewError("invalid_workflow_gate", f"unsupported workflow gate: {gate}")
+        workflow_gate = cast(WorkflowGate, gate)
+        normalized_decision = _normalize_workflow_decision(reviewed, decision)
+        normalized_note = _normalize_workflow_note(note)
+        normalized_checklist = _normalize_workflow_checklist(workflow_gate, checklist)
+        reviewed_at = datetime.now(UTC).isoformat() if reviewed else None
+
+        def _mutate(project: dict[str, Any]) -> None:
+            episode_meta = script_review.find_episode(project, episode)
+            if episode_meta is None:
+                raise ScriptReviewError("episode_not_found")
+            records = episode_meta.setdefault(_WORKFLOW_REVIEW_FIELD, {})
+            if not isinstance(records, dict):
+                records = {}
+                episode_meta[_WORKFLOW_REVIEW_FIELD] = records
+            records[workflow_gate] = {
+                "reviewed": reviewed,
+                "reviewed_at": reviewed_at,
+                "decision": normalized_decision,
+                "note": normalized_note,
+                "checklist": normalized_checklist,
+            }
+
+        self.pm.update_project(project_name, _mutate)
+        return self.get_state(project_name, episode)
+
+    def set_workflow_artifacts(
+        self,
+        project_name: str,
+        episode: int,
+        seedance_prompt: str | None = None,
+        artifacts: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Persist manually supplied local-production artifact references.
+
+        The ledger stores paths/URLs/notes only. It does not launch providers or approve gates.
+        """
+        normalized_prompt = _normalize_workflow_artifact_text(seedance_prompt, limit=20000)
+        normalized_artifacts = _normalize_workflow_artifacts_input(artifacts)
+        updated_at = datetime.now(UTC).isoformat()
+
+        def _mutate(project: dict[str, Any]) -> None:
+            episode_meta = script_review.find_episode(project, episode)
+            if episode_meta is None:
+                raise ScriptReviewError("episode_not_found")
+            ledger = episode_meta.setdefault(_WORKFLOW_ARTIFACT_FIELD, {})
+            if not isinstance(ledger, dict):
+                ledger = {}
+                episode_meta[_WORKFLOW_ARTIFACT_FIELD] = ledger
+            ledger["seedance_prompt"] = normalized_prompt
+            for workflow_gate, record in normalized_artifacts.items():
+                has_content = any(record[field] for field in ("path", "url", "note"))
+                ledger[workflow_gate] = {
+                    **record,
+                    "updated_at": updated_at if has_content else None,
+                }
+
+        self.pm.update_project(project_name, _mutate)
+        return self.get_state(project_name, episode)
 
     def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
         """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。
@@ -114,10 +208,19 @@ class ScriptReviewService:
         # 确认前按 content_mode 模型校验 step1 结构：content_fingerprint 对非法 JSON / 任意字节
         # 也会产出哈希，仅凭 fingerprint 非空会把损坏草稿确认放行、拖到 step2 才暴露；此处拒绝。
         model = _CONTENT_MODEL[project["content_mode"]]
+        content = _read_json(path)
         try:
-            model.model_validate(_read_json(path))
+            model.model_validate(content)
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
+        qa = evaluate_short_drama_qa(project, content)
+        if has_blocking_findings(qa):
+            payload = {
+                "code": "qa_gate_blocked",
+                "message": "deterministic QA findings must be fixed before confirming step1 review",
+                **qa,
+            }
+            raise ScriptReviewError("qa_gate_blocked", payload["message"], payload)
 
         confirmed_at = datetime.now(UTC).isoformat()
 
@@ -137,3 +240,105 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     """
     data = load_json_or_none(path)
     return data if isinstance(data, dict) else None
+
+
+def _workflow_review_summary(project: dict[str, Any], episode: int) -> dict[str, Any]:
+    episode_meta = script_review.find_episode(project, episode) or {}
+    records = episode_meta.get(_WORKFLOW_REVIEW_FIELD)
+    if not isinstance(records, dict):
+        records = {}
+    summary: dict[str, Any] = {}
+    for workflow_gate in _WORKFLOW_GATES:
+        record = records.get(workflow_gate)
+        if not isinstance(record, dict):
+            record = {}
+        reviewed = record.get("reviewed") is True
+        reviewed_at = record.get("reviewed_at") if isinstance(record.get("reviewed_at"), str) else None
+        decision = record.get("decision") if record.get("decision") in _WORKFLOW_DECISIONS else None
+        note = record.get("note") if isinstance(record.get("note"), str) else ""
+        checklist = record.get("checklist") if isinstance(record.get("checklist"), dict) else None
+        summary[f"{workflow_gate}_reviewed"] = reviewed
+        summary[f"{workflow_gate}_reviewed_at"] = reviewed_at if reviewed else None
+        summary[f"{workflow_gate}_decision"] = decision or ("approved" if reviewed else "pending")
+        summary[f"{workflow_gate}_note"] = note
+        summary[f"{workflow_gate}_checklist"] = _normalize_workflow_checklist(workflow_gate, checklist)
+    return summary
+
+
+def _workflow_artifact_summary(project: dict[str, Any], episode: int) -> dict[str, Any]:
+    episode_meta = script_review.find_episode(project, episode) or {}
+    ledger = episode_meta.get(_WORKFLOW_ARTIFACT_FIELD)
+    if not isinstance(ledger, dict):
+        ledger = {}
+    summary: dict[str, Any] = {
+        "seedance_prompt": _normalize_workflow_artifact_text(ledger.get("seedance_prompt"), limit=20000),
+    }
+    for workflow_gate in _WORKFLOW_GATES:
+        summary[workflow_gate] = _workflow_artifact_record_from_storage(ledger.get(workflow_gate))
+    return summary
+
+
+def _workflow_artifact_record_from_storage(record: object) -> dict[str, Any]:
+    if not isinstance(record, dict):
+        record = {}
+    updated_at = record.get("updated_at") if isinstance(record.get("updated_at"), str) else None
+    return {
+        "path": _normalize_workflow_artifact_text(record.get("path"), limit=2000),
+        "url": _normalize_workflow_artifact_text(record.get("url"), limit=2000),
+        "note": _normalize_workflow_artifact_text(record.get("note"), limit=1000),
+        "updated_at": updated_at,
+    }
+
+
+def _normalize_workflow_artifacts_input(artifacts: object | None) -> dict[WorkflowGate, dict[str, str]]:
+    if artifacts is None:
+        return {}
+    if not isinstance(artifacts, dict):
+        raise ScriptReviewError("invalid_workflow_artifacts", "workflow artifacts must be an object")
+    normalized: dict[WorkflowGate, dict[str, str]] = {}
+    for gate, record in artifacts.items():
+        if gate not in _WORKFLOW_GATES:
+            raise ScriptReviewError("invalid_workflow_artifacts", f"unsupported workflow artifact gate: {gate}")
+        if not isinstance(record, dict):
+            raise ScriptReviewError("invalid_workflow_artifacts", f"workflow artifact record for {gate} must be an object")
+        normalized[cast(WorkflowGate, gate)] = {
+            "path": _normalize_workflow_artifact_text(record.get("path"), limit=2000),
+            "url": _normalize_workflow_artifact_text(record.get("url"), limit=2000),
+            "note": _normalize_workflow_artifact_text(record.get("note"), limit=1000),
+        }
+    return normalized
+
+
+def _normalize_workflow_artifact_text(value: object | None, *, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:limit]
+
+
+def _normalize_workflow_decision(reviewed: bool, decision: str | None) -> WorkflowDecision:
+    if decision is None:
+        return "approved" if reviewed else "pending"
+    if decision not in _WORKFLOW_DECISIONS:
+        raise ScriptReviewError("invalid_workflow_decision", f"unsupported workflow decision: {decision}")
+    if reviewed and decision == "pending":
+        return "approved"
+    return cast(WorkflowDecision, decision)
+
+
+def _normalize_workflow_note(note: str | None) -> str:
+    if note is None:
+        return ""
+    return note.strip()[:1000]
+
+
+def _normalize_workflow_checklist(gate: WorkflowGate, checklist: object | None) -> dict[str, bool]:
+    values = {key: False for key in _WORKFLOW_CHECKLISTS[gate]}
+    if checklist is None:
+        return values
+    if not isinstance(checklist, dict):
+        raise ScriptReviewError("invalid_workflow_checklist", "workflow checklist must be an object")
+    for key, value in checklist.items():
+        if key not in values:
+            raise ScriptReviewError("invalid_workflow_checklist", f"unsupported workflow checklist item: {key}")
+        values[key] = value is True
+    return values

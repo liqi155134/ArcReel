@@ -1047,6 +1047,13 @@ export default {
   'review_confirm_failed': 'Không thể xác nhận, vui lòng thử lại',
   'review_load_failed': 'Không thể tải nội dung tiền xử lý',
   'review_retry': 'Thử lại',
+  'review_qa_status_clear': 'QA phim ngắn đã đạt',
+  'review_qa_panel_title': 'QA phim ngắn',
+  'review_qa_block_count': 'Chặn {{count}}',
+  'review_qa_warn_count': 'Cảnh báo {{count}}',
+  'review_qa_info_count': 'Thông tin {{count}}',
+  'review_qa_blocked_hint': 'Cần sửa các mục chặn trước khi xác nhận.',
+  'review_qa_warning_hint': 'Chỉ còn cảnh báo/thông tin; người duyệt có thể tiếp tục.',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 
