@@ -1067,6 +1067,10 @@ export default {
   'local_workflow_mark_storyboard_reviewed': 'Đánh dấu storyboard đã duyệt',
   'local_workflow_storyboard_reviewed': 'Storyboard đã duyệt',
   'local_workflow_review_saved': 'Đã lưu trạng thái duyệt quy trình cục bộ',
+  'local_workflow_mark_video_reviewed': 'Đánh dấu video đã duyệt',
+  'local_workflow_video_reviewed': 'Video đã duyệt',
+  'local_workflow_mark_export_reviewed': 'Đánh dấu xuất bản đã duyệt',
+  'local_workflow_export_reviewed': 'Xuất bản đã duyệt',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

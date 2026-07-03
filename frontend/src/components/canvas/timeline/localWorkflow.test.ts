@@ -41,6 +41,20 @@ describe("deriveLocalWorkflowStages", () => {
     expect(stages.export_gate.status).toBe("locked");
   });
 
+
+  it("marks export complete after explicit export review", () => {
+    const stages = stageMap({
+      reviewStatus: "confirmed",
+      qaGateStatus: "clear",
+      storyboardReviewed: true,
+      videoReviewed: true,
+      exportReviewed: true,
+    });
+
+    expect(stages.video_gate.status).toBe("complete");
+    expect(stages.export_gate.status).toBe("complete");
+  });
+
   it("returns the six local-production gates in order", () => {
     expect(deriveLocalWorkflowStages({ reviewStatus: "no_step1", qaGateStatus: "clear" }).map((stage) => stage.id)).toEqual([
       "brief_gate",

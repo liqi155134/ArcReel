@@ -1101,6 +1101,10 @@ export default {
   'local_workflow_mark_storyboard_reviewed': 'Mark storyboard reviewed',
   'local_workflow_storyboard_reviewed': 'Storyboard reviewed',
   'local_workflow_review_saved': 'Local workflow review saved',
+  'local_workflow_mark_video_reviewed': 'Mark video reviewed',
+  'local_workflow_video_reviewed': 'Video reviewed',
+  'local_workflow_mark_export_reviewed': 'Mark export reviewed',
+  'local_workflow_export_reviewed': 'Export reviewed',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

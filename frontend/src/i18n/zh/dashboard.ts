@@ -1102,6 +1102,10 @@ export default {
   'local_workflow_mark_storyboard_reviewed': '标记分镜图已审核',
   'local_workflow_storyboard_reviewed': '分镜图已审核',
   'local_workflow_review_saved': '本地流程审核状态已保存',
+  'local_workflow_mark_video_reviewed': '标记视频已审核',
+  'local_workflow_video_reviewed': '视频已审核',
+  'local_workflow_mark_export_reviewed': '标记导出已审核',
+  'local_workflow_export_reviewed': '导出已审核',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

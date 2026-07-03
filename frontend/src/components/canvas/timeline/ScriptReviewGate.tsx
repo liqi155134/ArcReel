@@ -158,6 +158,8 @@ function LocalWorkflowOverview({
     exportReviewed: workflow.export_reviewed,
   });
   const canMarkStoryboardReviewed = state.status === "confirmed" && !workflow.storyboard_reviewed;
+  const canMarkVideoReviewed = state.status === "confirmed" && workflow.storyboard_reviewed && !workflow.video_reviewed;
+  const canMarkExportReviewed = state.status === "confirmed" && workflow.video_reviewed && !workflow.export_reviewed;
   const labelById = Object.fromEntries(
     WORKFLOW_STAGE_IDS.map((id) => [id, t(`local_workflow_stage_${id}`)]),
   ) as Record<(typeof WORKFLOW_STAGE_IDS)[number], string>;
@@ -204,6 +206,28 @@ function LocalWorkflowOverview({
         {workflow.storyboard_reviewed ? (
           <span className="rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200">
             {t("local_workflow_storyboard_reviewed")}
+          </span>
+        ) : null}
+        {canMarkVideoReviewed ? (
+          <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={() => onSetWorkflowGate("video", true)}>
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("local_workflow_mark_video_reviewed")}
+          </button>
+        ) : null}
+        {workflow.video_reviewed ? (
+          <span className="rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200">
+            {t("local_workflow_video_reviewed")}
+          </span>
+        ) : null}
+        {canMarkExportReviewed ? (
+          <button type="button" className={GHOST_BTN_CLS} disabled={busy} onClick={() => onSetWorkflowGate("export", true)}>
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("local_workflow_mark_export_reviewed")}
+          </button>
+        ) : null}
+        {workflow.export_reviewed ? (
+          <span className="rounded border border-emerald-400/25 bg-emerald-950/15 px-2 py-1 text-[11.5px] text-emerald-200">
+            {t("local_workflow_export_reviewed")}
           </span>
         ) : null}
       </div>

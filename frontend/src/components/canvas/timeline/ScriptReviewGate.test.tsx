@@ -308,6 +308,59 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByLabelText("分镜图审核：完成")).toBeInTheDocument();
   });
 
+
+  it("marks video and export reviews manually after upstream gates are reviewed", async () => {
+    const readyForVideo = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...clearWorkflowState().local_workflow_reviews,
+        storyboard_reviewed: true,
+        storyboard_reviewed_at: "2026-07-03T00:01:00Z",
+      },
+    });
+    const readyForExport = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...clearWorkflowState().local_workflow_reviews,
+        storyboard_reviewed: true,
+        storyboard_reviewed_at: "2026-07-03T00:01:00Z",
+        video_reviewed: true,
+        video_reviewed_at: "2026-07-03T00:02:00Z",
+      },
+    });
+    const fullyReviewed = dramaState({
+      status: "confirmed",
+      confirmed_at: "2026-07-03T00:00:00Z",
+      local_workflow_reviews: {
+        ...readyForExport.local_workflow_reviews,
+        export_reviewed: true,
+        export_reviewed_at: "2026-07-03T00:03:00Z",
+      },
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(readyForVideo);
+    const setGate = vi
+      .spyOn(API, "setScriptReviewWorkflowGate")
+      .mockResolvedValueOnce(readyForExport)
+      .mockResolvedValueOnce(fullyReviewed);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("标记视频已审核")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("标记视频已审核"));
+
+    await waitFor(() => expect(setGate).toHaveBeenCalledWith("p", 1, "video", true));
+    await waitFor(() => expect(screen.getByText("视频已审核")).toBeInTheDocument());
+    expect(screen.getByLabelText("导出检查：就绪")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("标记导出已审核"));
+
+    await waitFor(() => expect(setGate).toHaveBeenCalledWith("p", 1, "export", true));
+    await waitFor(() => expect(screen.getByText("导出已审核")).toBeInTheDocument());
+    expect(screen.getByLabelText("导出检查：完成")).toBeInTheDocument();
+  });
+
   it("renders local workflow overview with blocked script gate and locked video stage", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
       dramaState({
