@@ -115,6 +115,49 @@ def test_confirm_blocks_unsupported_duration_without_writing_fingerprint(tmp_pat
     assert "step1_review" not in pm.load_project("demo")["episodes"][0]
 
 
+def test_confirm_blocks_registry_resolved_duration_without_project_json_key(tmp_path: Path) -> None:
+    # Real projects carry only `video_backend`; the duration whitelist is resolved
+    # from the provider registry, never from a `_supported_durations` key in
+    # project.json. This is the real path the fail-open bug left uncovered.
+    pm = _make_project(tmp_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update({"video_backend": "gemini-aistudio/veo-3.1-generate-preview"}),
+    )
+    _write_step1(pm, _drama_step1(duration_seconds=7))  # 7 ∉ registry [4, 6, 8]
+    svc = ScriptReviewService(pm)
+
+    state = svc.get_state("demo", 1)
+    assert state["qa_gate_status"] == "blocked"
+    assert any(f["code"] == "unsupported_duration" for f in state["qa_findings"])
+
+    with pytest.raises(ScriptReviewError) as exc:
+        svc.confirm("demo", 1)
+    assert exc.value.code == "qa_gate_blocked"
+    assert exc.value.payload is not None
+    assert exc.value.payload["qa_findings"][0]["code"] == "unsupported_duration"
+    assert "step1_review" not in pm.load_project("demo")["episodes"][0]
+
+    # The SDK step2 gate must enforce the same registry-resolved duration block,
+    # not just the web confirm path — otherwise agent-driven step2 would bypass it.
+    assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
+
+
+def test_confirm_allows_registry_resolved_in_range_duration(tmp_path: Path) -> None:
+    # Registry-resolved durations must not over-block: 8 ∈ [4, 6, 8] confirms cleanly.
+    pm = _make_project(tmp_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update({"video_backend": "gemini-aistudio/veo-3.1-generate-preview"}),
+    )
+    _write_step1(pm, _drama_step1(duration_seconds=8))
+    svc = ScriptReviewService(pm)
+
+    state = svc.get_state("demo", 1)
+    assert state["qa_gate_status"] == "clear"
+    assert svc.confirm("demo", 1)["status"] == "confirmed"
+
+
 def test_registered_asset_without_sheet_warns_but_does_not_block_confirm(tmp_path: Path) -> None:
     pm = _make_project(tmp_path)
     pm.update_project("demo", lambda project: project["props"]["信纸"].update({"prop_sheet": ""}))

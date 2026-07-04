@@ -49,11 +49,22 @@ def empty_result() -> QAResult:
     return _build_result([])
 
 
-def evaluate_short_drama_qa(project: dict[str, Any], step1_content: dict[str, Any] | None) -> QAResult:
+def evaluate_short_drama_qa(
+    project: dict[str, Any],
+    step1_content: dict[str, Any] | None,
+    *,
+    supported_durations: list[int] | None = None,
+) -> QAResult:
     """Return derived QA findings for Phase 1.
 
     Inputs are restricted to project metadata and step1 content.  Optional script
     or storyboard artifacts are deliberately excluded from this phase.
+
+    ``supported_durations`` lets callers inject the video model's real duration
+    whitelist (resolved from provider caps/registry, which live outside
+    ``project.json``).  When omitted, it falls back to the ``_supported_durations``
+    / ``supported_durations`` keys on ``project`` — so passing nothing preserves
+    the previous behaviour.
     """
     if not isinstance(step1_content, dict):
         return empty_result()
@@ -70,9 +81,11 @@ def evaluate_short_drama_qa(project: dict[str, Any], step1_content: dict[str, An
     else:
         return empty_result()
 
+    durations = _normalize_durations(supported_durations) if supported_durations is not None else _supported_durations(project)
+
     findings: list[QAFinding] = []
     findings.extend(_asset_findings(project, items, id_key))
-    findings.extend(_duration_findings(project, items, id_key))
+    findings.extend(_duration_findings(durations, items, id_key))
     if content_mode == "drama":
         findings.extend(_empty_drama_visual_findings(items))
     findings.extend(_creative_warn_findings(items, id_key, text_keys))
@@ -128,8 +141,7 @@ def _asset_findings(project: dict[str, Any], items: list[Any], id_key: str) -> l
     return findings
 
 
-def _duration_findings(project: dict[str, Any], items: list[Any], id_key: str) -> list[QAFinding]:
-    supported = _supported_durations(project)
+def _duration_findings(supported: list[int], items: list[Any], id_key: str) -> list[QAFinding]:
     if not supported:
         return []
     findings: list[QAFinding] = []
@@ -253,6 +265,10 @@ def _list_items(value: Any) -> list[Any]:
 
 def _supported_durations(project: dict[str, Any]) -> list[int]:
     raw = project.get("_supported_durations") or project.get("supported_durations")
+    return _normalize_durations(raw)
+
+
+def _normalize_durations(raw: Any) -> list[int]:
     if not isinstance(raw, list):
         return []
     durations: list[int] = []

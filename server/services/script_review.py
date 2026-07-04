@@ -83,7 +83,11 @@ class ScriptReviewService:
             self._require_episode(project, episode)
         fingerprint = script_review.content_fingerprint(path) if path is not None else None
         content = _read_json(path) if path is not None else None
-        qa = evaluate_short_drama_qa(project, content) if path is not None else empty_result()
+        qa = (
+            evaluate_short_drama_qa(project, content, supported_durations=script_review.resolve_supported_durations(project))
+            if path is not None
+            else empty_result()
+        )
         return {
             "episode": episode,
             "content_mode": project.get("content_mode"),
@@ -213,7 +217,7 @@ class ScriptReviewService:
             model.model_validate(content)
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
-        qa = evaluate_short_drama_qa(project, content)
+        qa = evaluate_short_drama_qa(project, content, supported_durations=script_review.resolve_supported_durations(project))
         if has_blocking_findings(qa):
             payload = {
                 "code": "qa_gate_blocked",

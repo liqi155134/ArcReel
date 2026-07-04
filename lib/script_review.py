@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.episode_paths import STEP1_FILENAMES, episode_drafts_dir, episode_script_relpath
 from lib.json_io import load_json_or_none
 from lib.project_manager import effective_mode
@@ -128,7 +129,40 @@ def step1_qa_result(project_path: Path, project: dict[str, Any], episode: int) -
     if path is None:
         return empty_result()
     content = load_json_or_none(path)
-    return evaluate_short_drama_qa(project, content if isinstance(content, dict) else None)
+    return evaluate_short_drama_qa(
+        project,
+        content if isinstance(content, dict) else None,
+        supported_durations=resolve_supported_durations(project),
+    )
+
+
+def resolve_supported_durations(project: dict[str, Any]) -> list[int] | None:
+    """Resolve the video model's duration whitelist for the QA duration gate.
+
+    ``project.json`` never carries ``_supported_durations`` (durations are derived
+    at generation time from provider caps/registry), so the duration block would
+    otherwise never fire on real projects. This mirrors the *synchronous* tail of
+    ``ScriptGenerator._resolve_supported_durations``: honour any ``project.json``
+    override first, then fall back to the preset ``PROVIDER_REGISTRY`` via the
+    ``video_backend`` id. Lives here (the shared gate module) so the SDK step2
+    enforcement and the web review service resolve durations identically.
+
+    Returns ``None`` (fail-open, no block) when durations cannot be resolved — e.g.
+    a custom provider whose caps live only in the DB and would require the async
+    caps flow to read. See the phase-2 report for that remaining gap.
+    """
+    override = project.get("_supported_durations") or project.get("supported_durations")
+    if isinstance(override, list):
+        return override
+    video_backend = project.get("video_backend")
+    if isinstance(video_backend, str) and "/" in video_backend:
+        provider_id, model_id = video_backend.split("/", 1)
+        provider_meta = PROVIDER_REGISTRY.get(provider_id)
+        if provider_meta is not None:
+            model_info = provider_meta.models.get(model_id)
+            if model_info is not None and model_info.supported_durations:
+                return list(model_info.supported_durations)
+    return None
 
 
 def gate_blocks_step2(project_path: Path, project: dict[str, Any], episode: int) -> bool:
