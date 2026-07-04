@@ -40,6 +40,16 @@ _SAFE_ENV_KEYS = frozenset(
         "XDG_CACHE_HOME",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",
+        # Proxy vars must survive scrubbing: the container routes all outbound
+        # traffic through a local no-auth relay, so the child `claude` process
+        # cannot reach the Anthropic API without them. These carry no provider
+        # secret (auth is injected by the relay, not by these values).
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
     }
 )
 _SENSITIVE_ENV_KEY_PARTS = (
@@ -198,25 +208,77 @@ def build_prompt(intent: DraftIntent, packet: Mapping[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
 
 
+def _draft_fields(
+    *,
+    summary: str = "",
+    findings: list[Any] | None = None,
+    proposed_patch: Any = None,
+    raw_text: str = "",
+    is_error: bool = False,
+) -> dict[str, Any]:
+    return {
+        "summary": summary,
+        "findings": findings if isinstance(findings, list) else [],
+        "proposed_patch": proposed_patch,
+        "raw_text": raw_text,
+        "is_error": is_error,
+    }
+
+
+def _fields_from_payload(payload: Mapping[str, Any], *, is_error: bool) -> dict[str, Any]:
+    summary_value = payload.get("summary", "")
+    findings_value = payload.get("findings", [])
+    proposed_patch = payload.get("proposed_patch")
+    return _draft_fields(
+        summary=summary_value if isinstance(summary_value, str) else json.dumps(summary_value, ensure_ascii=False),
+        findings=findings_value if isinstance(findings_value, list) else [],
+        proposed_patch=proposed_patch,
+        raw_text="",
+        is_error=is_error,
+    )
+
+
 def parse_claude_output(stdout: str) -> dict[str, Any]:
-    """Parse Claude JSON output, falling back to raw draft notes."""
+    """Parse `claude -p --output-format json` output into ledger-friendly fields.
+
+    The CLI wraps model output in a result envelope
+    ``{"type":"result","is_error":...,"result":"<model text>", ...}``; the model's
+    actual content lives under ``.result`` (itself a JSON string when the system
+    prompt asks for structured output). This unwraps the envelope, then parses the
+    inner payload for ``summary``/``findings``/``proposed_patch``. It stays
+    backward compatible with the pre-envelope shape where stdout *is* the inner
+    JSON object, and falls back to raw draft notes when nothing parses.
+
+    The returned ``is_error`` flag mirrors an error envelope so callers can treat
+    the run as failed even when the process exit code was 0.
+    """
     clean = redact_text(stdout.strip())
     if not clean:
-        return {"summary": "", "findings": [], "proposed_patch": None, "raw_text": ""}
+        return _draft_fields()
     try:
-        parsed = json.loads(clean)
+        envelope = json.loads(clean)
     except json.JSONDecodeError:
-        return {"summary": clean, "findings": [], "proposed_patch": None, "raw_text": clean}
+        return _draft_fields(summary=clean, raw_text=clean)
 
-    if not isinstance(parsed, dict):
-        return {"summary": clean, "findings": [], "proposed_patch": None, "raw_text": clean}
+    is_error = False
+    inner: Any = envelope
+    if isinstance(envelope, dict) and "result" in envelope:
+        # Real CLI envelope: unwrap the model content from `.result`.
+        is_error = envelope.get("is_error") is True
+        inner = envelope.get("result")
 
-    summary_value = parsed.get("summary", "")
-    findings_value = parsed.get("findings", [])
-    proposed_patch = parsed.get("proposed_patch")
-    return {
-        "summary": summary_value if isinstance(summary_value, str) else json.dumps(summary_value, ensure_ascii=False),
-        "findings": findings_value if isinstance(findings_value, list) else [],
-        "proposed_patch": proposed_patch,
-        "raw_text": "",
-    }
+    if isinstance(inner, str):
+        inner_clean = inner.strip()
+        if not inner_clean:
+            return _draft_fields(is_error=is_error)
+        try:
+            inner = json.loads(inner_clean)
+        except json.JSONDecodeError:
+            return _draft_fields(summary=inner_clean, raw_text=inner_clean, is_error=is_error)
+
+    if isinstance(inner, dict):
+        return _fields_from_payload(inner, is_error=is_error)
+
+    # Inner is a bare list/number/None: surface it as raw draft notes.
+    text = "" if inner is None else inner if isinstance(inner, str) else json.dumps(inner, ensure_ascii=False)
+    return _draft_fields(summary=text, raw_text=text, is_error=is_error)

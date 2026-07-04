@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -12,15 +13,45 @@ from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 
 
+def _result_envelope(result: str, *, is_error: bool = False) -> str:
+    """Build the real `claude -p --output-format json` result envelope.
+
+    The model's content lives under `.result`; `is_error` flags a failed run even
+    when the process exits 0. Mirroring this shape keeps the fake runner honest
+    (the previous fake returned inner JSON as top-level stdout, which the CLI never does).
+    """
+    return json.dumps(
+        {
+            "type": "result",
+            "subtype": "error" if is_error else "success",
+            "is_error": is_error,
+            "result": result,
+            "session_id": "fake-session",
+            "total_cost_usd": 0.0001,
+        },
+        ensure_ascii=False,
+    )
+
+
 class FakeClaudeRunner:
-    def __init__(self, stdout: str = '{"summary":"review ok"}', stderr: str = "") -> None:
-        self.stdout = stdout
+    def __init__(
+        self,
+        result: str = '{"summary":"review ok"}',
+        *,
+        is_error: bool = False,
+        stdout: str | None = None,
+        stderr: str = "",
+        returncode: int = 0,
+    ) -> None:
+        # Default to a realistic result envelope; `result` is the inner (JSON) model content.
+        self.stdout = stdout if stdout is not None else _result_envelope(result, is_error=is_error)
         self.stderr = stderr
+        self.returncode = returncode
         self.calls: list[dict] = []
 
     async def run(self, *, command: list[str], prompt: str, cwd: Path, env: dict[str, str], timeout_seconds: int):
         self.calls.append({"command": command, "prompt": prompt, "cwd": cwd, "env": env, "timeout_seconds": timeout_seconds})
-        return {"returncode": 0, "stdout": self.stdout, "stderr": self.stderr}
+        return {"returncode": self.returncode, "stdout": self.stdout, "stderr": self.stderr}
 
 
 def _make_pm(tmp_path: Path) -> ProjectManager:
@@ -92,6 +123,24 @@ def test_create_draft_with_mocked_subprocess_writes_artifact(tmp_path: Path, mon
     loaded = client.get(f"/api/v1/projects/demo/claude-drafts/{payload['artifact_id']}")
     assert loaded.status_code == 200
     assert loaded.json()["artifact_id"] == payload["artifact_id"]
+
+
+def test_create_draft_marks_error_envelope_as_failed(tmp_path: Path, monkeypatch) -> None:
+    pm = _make_pm(tmp_path)
+    # CLI exits 0 but reports an error envelope (`is_error=true`); must be recorded as failed.
+    runner = FakeClaudeRunner(result="rate limited by upstream", is_error=True)
+    client = _client(monkeypatch, pm, runner)
+
+    response = client.post(
+        "/api/v1/projects/demo/claude-drafts",
+        json={"intent": "script_review_notes", "episode": 1},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert payload["output"] == {}
+    assert "rate limited by upstream" in payload["error"]
 
 
 def test_create_draft_refuses_unsupported_intent(tmp_path: Path, monkeypatch) -> None:

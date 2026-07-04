@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -53,6 +54,25 @@ def test_scrubbed_env_removes_provider_and_gateway_credentials(monkeypatch: pyte
         assert key not in env
 
 
+def test_scrubbed_env_preserves_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lib.claude_draft_bridge import build_scrubbed_env
+
+    monkeypatch.setenv("HOME", "/home/tester")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:18000")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:18000")
+    monkeypatch.setenv("NO_PROXY", "localhost,127.0.0.1")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret-anthropic")
+
+    env = build_scrubbed_env(os.environ)
+
+    # Proxy vars must survive: the child `claude` reaches the API only through the relay.
+    assert env["HTTPS_PROXY"] == "http://127.0.0.1:18000"
+    assert env["http_proxy"] == "http://127.0.0.1:18000"
+    assert env["NO_PROXY"] == "localhost,127.0.0.1"
+    # Provider secrets are still stripped.
+    assert "ANTHROPIC_API_KEY" not in env
+
+
 def test_context_packet_redacts_sensitive_fields_and_caps_large_text() -> None:
     from lib.claude_draft_bridge import build_context_packet
 
@@ -91,11 +111,68 @@ def test_invalid_intent_is_rejected() -> None:
 def test_parse_output_accepts_json_and_falls_back_to_raw_text() -> None:
     from lib.claude_draft_bridge import parse_claude_output
 
+    # Backward compat: stdout that is already the inner JSON object (pre-envelope).
     parsed = parse_claude_output('{"summary":"ok","findings":[{"code":"x"}]}')
     assert parsed["summary"] == "ok"
     assert parsed["findings"] == [{"code": "x"}]
     assert parsed["raw_text"] == ""
+    assert parsed["is_error"] is False
 
     fallback = parse_claude_output("plain review notes")
     assert fallback["summary"] == "plain review notes"
     assert fallback["raw_text"] == "plain review notes"
+
+
+def test_parse_output_unwraps_cli_result_envelope_with_inner_json() -> None:
+    from lib.claude_draft_bridge import parse_claude_output
+
+    # Real `claude -p --output-format json` shape: the model's JSON lives in `.result`
+    # as a nested JSON string, wrapped in a result envelope.
+    envelope = json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": json.dumps(
+                {"summary": "review complete", "findings": [{"code": "weak_hook"}], "proposed_patch": None},
+                ensure_ascii=False,
+            ),
+            "session_id": "abc123",
+            "total_cost_usd": 0.0123,
+        },
+        ensure_ascii=False,
+    )
+
+    parsed = parse_claude_output(envelope)
+
+    assert parsed["summary"] == "review complete"
+    assert parsed["findings"] == [{"code": "weak_hook"}]
+    assert parsed["raw_text"] == ""
+    assert parsed["is_error"] is False
+
+
+def test_parse_output_envelope_plain_text_result_goes_to_summary() -> None:
+    from lib.claude_draft_bridge import parse_claude_output
+
+    envelope = json.dumps(
+        {"type": "result", "is_error": False, "result": "here are my freeform notes", "session_id": "x"}
+    )
+
+    parsed = parse_claude_output(envelope)
+
+    assert parsed["summary"] == "here are my freeform notes"
+    assert parsed["raw_text"] == "here are my freeform notes"
+    assert parsed["is_error"] is False
+
+
+def test_parse_output_flags_error_envelope_as_failure() -> None:
+    from lib.claude_draft_bridge import parse_claude_output
+
+    envelope = json.dumps(
+        {"type": "result", "subtype": "error", "is_error": True, "result": "rate limited", "session_id": "x"}
+    )
+
+    parsed = parse_claude_output(envelope)
+
+    assert parsed["is_error"] is True
+    assert parsed["summary"] == "rate limited"

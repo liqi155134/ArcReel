@@ -181,11 +181,16 @@ def _build_artifact_payload(
     run_result: Mapping[str, object],
 ) -> dict[str, Any]:
     returncode = run_result.get("returncode")
-    succeeded = returncode == 0
     stdout_value = run_result.get("stdout")
     stderr_value = run_result.get("stderr")
     stdout = stdout_value if isinstance(stdout_value, str) else ""
     stderr = stderr_value if isinstance(stderr_value, str) else ""
+    # Parse first, then decide success: the CLI can exit 0 while reporting an error
+    # envelope (`is_error=true`), which must still be recorded as a failed run.
+    parsed = parse_claude_output(stdout) if returncode == 0 else None
+    envelope_error = bool(parsed and parsed.get("is_error"))
+    succeeded = returncode == 0 and not envelope_error
+    output = {k: v for k, v in parsed.items() if k != "is_error"} if (succeeded and parsed) else {}
     payload: dict[str, Any] = {
         "schema_version": 1,
         "intent": intent,
@@ -200,8 +205,12 @@ def _build_artifact_payload(
             "env_scrubbed": True,
         },
         "input_summary": _input_summary(packet),
-        "output": parse_claude_output(stdout) if succeeded else {},
+        "output": output,
     }
     if not succeeded:
-        payload["error"] = redact_text(stderr or f"Claude draft run failed with return code {returncode}")
+        if envelope_error and parsed:
+            fallback = parsed.get("summary") or parsed.get("raw_text") or "Claude draft run reported an error result"
+            payload["error"] = redact_text(stderr or fallback)
+        else:
+            payload["error"] = redact_text(stderr or f"Claude draft run failed with return code {returncode}")
     return payload
