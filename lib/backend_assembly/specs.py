@@ -171,6 +171,31 @@ def _kling_spec(media_type: str) -> ProviderSpec:
     )
 
 
+# ── dreamina-cli 特例族 ────────────────────────────────────────────
+# 即梦官方 CLI 本机直连：凭证只有 cli_path（dreamina 可执行文件路径，无 secret，参照
+# gemini-vertex credentials_path 先例），无 api_key / base_url 概念，故不走 _build_simple
+# （其 api_key/base_url 形态与 CLI 不符），挂专属闭包只透传 cli_path + model。
+
+_DREAMINA_CLI_REGISTRY_BACKEND = "dreamina-cli"
+
+
+def _build_dreamina_cli(config: LoadedConfig, model_id: str | None, *, media_type: str) -> Any:
+    return _media_create_backend(media_type)(
+        _DREAMINA_CLI_REGISTRY_BACKEND,
+        model=model_id,
+        cli_path=config.credentials.get("cli_path"),
+    )
+
+
+def _dreamina_cli_spec(media_type: str) -> ProviderSpec:
+    return ProviderSpec(
+        provider_id=_DREAMINA_CLI_REGISTRY_BACKEND,
+        media_type=media_type,
+        registry_backend=_DREAMINA_CLI_REGISTRY_BACKEND,
+        build_backend=partial(_build_dreamina_cli, media_type=media_type),
+    )
+
+
 # ── 文本族 ────────────────────────────────────────────────────────
 # 文本 backend 注册在独立的 lib.text_backends.registry（非 media registry），构造形态与媒体有别：
 # api_key/base_url 透传规则、OpenAI-compat 别名映射、provider_name 计费归因透传各不相同，故文本侧
@@ -336,6 +361,10 @@ PROVIDER_SPEC_REGISTRY.update(
 # 与 kling 同走独立显式登记，不并入 _SIMPLE_IMAGE_VIDEO_PROVIDERS 元组。
 PROVIDER_SPEC_REGISTRY[("agnes", "image")] = _simple_spec("agnes", "image")
 PROVIDER_SPEC_REGISTRY[("agnes", "video")] = _simple_spec("agnes", "video")
+# dreamina-cli 特例族 image + video（本机 CLI，凭证仅 cli_path，无文本能力）。
+PROVIDER_SPEC_REGISTRY.update(
+    {(_DREAMINA_CLI_REGISTRY_BACKEND, media_type): _dreamina_cli_spec(media_type) for media_type in ("image", "video")}
+)
 
 # ── 文本族注册 ────────────────────────────────────────────────────
 # 简单文本四家（registry_backend = provider_id 自身）；gemini 两个 provider_id 按 backend 分两行

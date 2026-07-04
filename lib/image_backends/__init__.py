@@ -66,3 +66,9 @@ from lib.image_backends.agnes import AgnesImageBackend
 from lib.providers import PROVIDER_AGNES
 
 register_backend(PROVIDER_AGNES, AgnesImageBackend)
+
+# 即梦官方 CLI — 本机 dreamina 可执行文件（OAuth 登录态，无 API key）
+from lib.image_backends.dreamina_cli import DreaminaCliImageBackend
+from lib.providers import PROVIDER_DREAMINA_CLI
+
+register_backend(PROVIDER_DREAMINA_CLI, DreaminaCliImageBackend)

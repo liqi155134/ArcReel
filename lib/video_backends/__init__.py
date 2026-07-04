@@ -87,3 +87,9 @@ from lib.providers import PROVIDER_AGNES  # noqa: E402
 from lib.video_backends.agnes import AgnesVideoBackend  # noqa: E402
 
 register_backend(PROVIDER_AGNES, AgnesVideoBackend)
+
+# 即梦官方 CLI — 本机 dreamina 可执行文件（OAuth 登录态，无 API key）
+from lib.providers import PROVIDER_DREAMINA_CLI  # noqa: E402
+from lib.video_backends.dreamina_cli import DreaminaCliVideoBackend  # noqa: E402
+
+register_backend(PROVIDER_DREAMINA_CLI, DreaminaCliVideoBackend)

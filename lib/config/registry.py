@@ -1249,6 +1249,124 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # 用户可经 video_max_workers 覆盖。其余 lane 未声明，走全局默认。
         default_concurrency={"video": 1},
     ),
+    "dreamina-cli": ProviderMeta(
+        display_name="即梦 CLI (Dreamina)",
+        description="即梦官方 dreamina CLI，OAuth 本机登录态直连（无 API key），支持 Seedance 视频与 Seedream 图片生成，按账号积分计费。",
+        # cli_path 即「凭证」：dreamina 可执行文件路径（填 dreamina 或绝对路径即激活），
+        # 无 secret —— 与 gemini-vertex 用 credentials_path 的无-secret 先例同构。
+        required_keys=["cli_path"],
+        optional_keys=["video_max_workers", "image_max_workers"],
+        secret_keys=[],
+        # pricing 一律留空：CLI 按账号积分计费，无法折算按次货币费率。
+        models={
+            # --- image ---
+            # 模型键以 CLI --model_version 值加 seedream- 前缀命名（registry 键兼作 UI 标识，
+            # 裸 "5.0" 无法辨认）；backend 下发时剥前缀。3.0/3.1 仅 T2I 且档位 1k/2k，
+            # 4.0+ 支持 I2I 且档位 2k/4k（CLI help 实测）。
+            "seedream-3.0": ModelInfo(
+                display_name="Seedream 3.0",
+                media_type="image",
+                capabilities=["text_to_image"],
+                resolutions=["1K", "2K"],
+            ),
+            "seedream-3.1": ModelInfo(
+                display_name="Seedream 3.1",
+                media_type="image",
+                capabilities=["text_to_image"],
+                resolutions=["1K", "2K"],
+            ),
+            "seedream-4.0": ModelInfo(
+                display_name="Seedream 4.0",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["2K", "4K"],
+            ),
+            "seedream-4.1": ModelInfo(
+                display_name="Seedream 4.1",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["2K", "4K"],
+            ),
+            "seedream-4.5": ModelInfo(
+                display_name="Seedream 4.5",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["2K", "4K"],
+            ),
+            "seedream-4.6": ModelInfo(
+                display_name="Seedream 4.6",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["2K", "4K"],
+            ),
+            "seedream-4.7": ModelInfo(
+                display_name="Seedream 4.7",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["2K", "4K"],
+            ),
+            "seedream-5.0": ModelInfo(
+                display_name="Seedream 5.0",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["2K", "4K"],
+            ),
+            # --- video ---
+            # 模型键即 CLI --model_version 值（seedance2.0fast 等，backend 原样透传）。
+            # 时长 / 分辨率按 CLI help 实测：2.0 家族 4-15s；仅 2.0_vip 支持 1080p/4k，
+            # 其余 720p。多参考（multimodal2video，≤9 图）仅 2.0 家族。
+            "seedance2.0": ModelInfo(
+                display_name="Seedance 2.0",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                supported_durations=list(range(4, 16)),
+                resolutions=["720p"],
+                max_reference_images=9,
+            ),
+            "seedance2.0fast": ModelInfo(
+                display_name="Seedance 2.0 Fast",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                default=True,
+                supported_durations=list(range(4, 16)),
+                resolutions=["720p"],
+                max_reference_images=9,
+            ),
+            "seedance2.0_vip": ModelInfo(
+                display_name="Seedance 2.0 VIP",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                supported_durations=list(range(4, 16)),
+                resolutions=["720p", "1080p", "4k"],
+                max_reference_images=9,
+            ),
+            "seedance2.0fast_vip": ModelInfo(
+                display_name="Seedance 2.0 Fast VIP",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                supported_durations=list(range(4, 16)),
+                resolutions=["720p"],
+                max_reference_images=9,
+            ),
+            "seedance2.0mini": ModelInfo(
+                display_name="Seedance 2.0 Mini",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                supported_durations=list(range(4, 16)),
+                resolutions=["720p"],
+                max_reference_images=9,
+            ),
+            # 1.5pro 仅 image2video / frames2video（无 T2V、无多参考、无声）；4-12s、720p。
+            "seedance1.5pro": ModelInfo(
+                display_name="Seedance 1.5 Pro",
+                media_type="video",
+                capabilities=["image_to_video"],
+                supported_durations=list(range(4, 13)),
+                resolutions=["720p"],
+            ),
+        },
+    ),
 }
 
 
